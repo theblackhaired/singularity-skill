@@ -199,6 +199,21 @@ Set `"read_only": true` to block all write operations. Read tools work normally.
 - Add tasks to the **base task group** of the project unless user specifies otherwise
 - To find the base task group: `task_group_list` with `parent` = project ID in `P-{uuid}` format
 
+### Task creation checklist
+
+When creating a task, **always** provide:
+1. `title` — заголовок задачи
+2. `parent` — ID родительской задачи (`T-{uuid}`) или task group (`Q-...` не работает — используй parent task)
+3. `projectId` — ID проекта (`P-{uuid}`). **Обязательно указывать**, даже если задача — подзадача
+4. `start` — дата задачи (не deadline!). Формат: `"2026-02-20"` для даты, ISO для времени
+5. `useTime: false` — если нужна только дата, без конкретного времени
+6. **НЕ ставить `deadline`**, если пользователь просит дату — это `start`
+
+After task creation:
+- Структурированные пункты → `checklist_create` (не текстом в описание)
+- Описание (`note`) оставлять пустым, если вся информация уже в заголовке + чеклисте
+- Если нужно описание — использовать `task_update` с `note` (строка), не `note_create` (Delta format часто ломается)
+
 ### Emoji format
 - Hex Unicode code **without prefix**: `"1f49e"` (not `"U+1F49E"` or `"\u1f49e"`)
 
