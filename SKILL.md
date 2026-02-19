@@ -203,8 +203,8 @@ Set `"read_only": true` to block all write operations. Read tools work normally.
 
 When creating a task, **always** provide:
 1. `title` — заголовок задачи
-2. `parent` — ID родительской задачи (`T-{uuid}`) или task group (`Q-...` не работает — используй parent task)
-3. `projectId` — ID проекта (`P-{uuid}`). **Обязательно указывать**, даже если задача — подзадача
+2. `projectId` — ID проекта (`P-{uuid}`). **Обязательно указывать**, даже если задача — подзадача
+3. `parent` — **только для подзадач**: ID родительской задачи (`T-{uuid}`). Для задач в **корне проекта** — **НЕ указывать `parent`**, достаточно `projectId`. `Q-...` (task group) **не работает** как parent
 4. `start` — дата задачи (не deadline!). Формат: `"2026-02-20"` для даты, ISO для времени
 5. `useTime: false` — если нужна только дата, без конкретного времени
 6. **НЕ ставить `deadline`**, если пользователь просит дату — это `start`
