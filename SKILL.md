@@ -4,6 +4,24 @@ description: REST API client for Singularity App -- task management, projects, h
 version: 1.0.0
 ---
 
+## Project Cache
+
+A project tree with IDs is available at `projects_cache.md` in this skill directory.
+**Always check it first** before calling `project_list` to save context tokens.
+
+The cache is **auto-managed**:
+- On first use (cache missing) it is built automatically
+- Refreshed silently every 7 days before any `--call` invocation
+- Refresh messages go to stderr and do not pollute JSON output
+
+Manual refresh:
+```bash
+python cli.py --refresh-cache
+```
+
+Cache location: `projects_cache.md` (next to `cli.py`).
+Last update timestamp stored in `config.json` as `"cache_updated": "2026-02-19T16:30:00"`.
+
 # Singularity App Skill
 
 Direct REST API v2 client for Singularity App. No external dependencies -- uses Python stdlib only (urllib, json, ssl). Bearer token auth via `config.json`.

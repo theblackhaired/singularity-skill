@@ -14,6 +14,7 @@ import json
 import sys
 import ssl
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.request import Request, urlopen
 from urllib.parse import urlencode, quote
@@ -971,6 +972,104 @@ for _name in TOOL_CATALOG:
 
 
 # ---------------------------------------------------------------------------
+# Project Cache Management
+# ---------------------------------------------------------------------------
+
+CACHE_MAX_AGE_DAYS = 7
+CACHE_FILE = ROOT / "projects_cache.md"
+
+
+def _refresh_project_cache(cfg: dict = None) -> None:
+    """Fetch all projects and write projects_cache.md + update config.json."""
+    if cfg is None:
+        cfg = load_config()
+
+    print("[singularity] Refreshing project cache...", file=sys.stderr)
+
+    client = SingularityClient(cfg["base_url"], cfg["token"])
+
+    # Fetch all projects (skip removed)
+    data = client.get("/v2/project", params={"maxCount": 1000})
+    projects = data if isinstance(data, list) else data.get("projects", data.get("items", []))
+
+    # Filter removed
+    projects = [p for p in projects if not p.get("removed")]
+
+    # Build id -> project map and parent -> children map
+    by_id = {p["id"]: p for p in projects}
+    children: dict = {}  # parent_id -> [project, ...]
+    roots = []
+
+    for p in projects:
+        parent = p.get("parent")
+        if parent and parent in by_id:
+            children.setdefault(parent, []).append(p)
+        else:
+            roots.append(p)
+
+    # Sort alphabetically by title at each level
+    roots.sort(key=lambda p: (p.get("title") or "").lower())
+    for lst in children.values():
+        lst.sort(key=lambda p: (p.get("title") or "").lower())
+
+    # Build flat indented lines recursively
+    lines = []
+
+    def _walk(project, depth: int) -> None:
+        indent = "  " * depth
+        title = project.get("title") or "(no title)"
+        pid = project["id"]
+        lines.append(f"{indent}- {title}  [{pid}]")
+        for child in children.get(project["id"], []):
+            _walk(child, depth + 1)
+
+    for root in roots:
+        _walk(root, 0)
+
+    # Write cache file (utf-8, no BOM)
+    now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+    content = (
+        "# Singularity Projects Cache\n"
+        f"<!-- cache_updated: {now_iso} -->\n"
+        "\n"
+        + "\n".join(lines)
+        + "\n"
+    )
+    CACHE_FILE.write_text(content, encoding="utf-8")
+
+    # Update config.json with cache_updated timestamp
+    cfg_path = ROOT / "config.json"
+    cfg["cache_updated"] = now_iso
+    cfg_path.write_text(json.dumps(cfg, indent=2, ensure_ascii=False), encoding="utf-8")
+
+    count = len(projects)
+    print(f"[singularity] Cache updated ({count} projects)", file=sys.stderr)
+
+
+def _maybe_auto_refresh_cache(cfg: dict) -> None:
+    """Auto-refresh cache if missing or older than CACHE_MAX_AGE_DAYS."""
+    if not CACHE_FILE.exists():
+        _refresh_project_cache(cfg)
+        return
+
+    cache_updated_str = cfg.get("cache_updated")
+    if not cache_updated_str:
+        _refresh_project_cache(cfg)
+        return
+
+    try:
+        cache_updated = datetime.fromisoformat(cache_updated_str)
+        # Make aware if naive
+        if cache_updated.tzinfo is None:
+            cache_updated = cache_updated.replace(tzinfo=timezone.utc)
+        age_days = (datetime.now(timezone.utc) - cache_updated).days
+        if age_days >= CACHE_MAX_AGE_DAYS:
+            _refresh_project_cache(cfg)
+    except (ValueError, TypeError):
+        _refresh_project_cache(cfg)
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -987,8 +1086,21 @@ def main():
     parser.add_argument(
         "--list", action="store_true", help="List all available tools"
     )
+    parser.add_argument(
+        "--refresh-cache", action="store_true",
+        help="Refresh projects_cache.md from API and update config.json cache_updated",
+    )
 
     cli_args = parser.parse_args()
+
+    # -- --refresh-cache ----------------------------------------------------
+    if cli_args.refresh_cache:
+        try:
+            _refresh_project_cache()
+        except Exception as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            sys.exit(1)
+        return
 
     # -- --list -------------------------------------------------------------
     if cli_args.list:
@@ -1051,6 +1163,14 @@ def main():
 
         try:
             cfg = load_config()
+
+            # Auto-refresh cache if missing or stale (silent, stderr only)
+            try:
+                _maybe_auto_refresh_cache(cfg)
+                # Reload config in case cache_updated was written
+                cfg = load_config()
+            except Exception:
+                pass  # Never block tool execution due to cache errors
 
             if cfg.get("read_only") and tool_name in WRITE_TOOLS:
                 print(
