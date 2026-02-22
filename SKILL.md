@@ -99,8 +99,10 @@ python cli.py --call '{"tool":"task_list","arguments":{"parent":"T-<task-id>"}}'
 | UUID тега по имени | `find_tag(name="AI")` или Read кэша |
 | Обновить справочники | `rebuild_references()` |
 | Сгенерировать шаблон meta | `generate_meta_template(type="projects"/"tags")` |
+| Получить задачу с заметкой | `task_full(task_id="T-xxx")` или передать Singularity URL |
+| Все задачи проекта с заметками | `project_tasks_full(project_id="P-xxx", include_notes=true)` |
 
-## Available Tools (60)
+## Available Tools (62)
 
 ### Projects (5 tools)
 
@@ -221,6 +223,13 @@ python cli.py --call '{"tool":"task_list","arguments":{"parent":"T-<task-id>"}}'
 | `generate_meta_template` | Generate meta template file with _title fields for easy editing (type: 'projects' or 'tags') |
 | `find_project` | Find project by name with auto-rebuild on cache miss (name, exact) |
 | `find_tag` | Find tag by name with auto-rebuild on cache miss (name, exact) |
+
+### Batch Operations (2 tools)
+
+| Tool | Description |
+|---|---|
+| `task_full` | Get task with its note (batch: task_get + note_list). Accepts task ID or Singularity URL (singularityapp:// or https://web.singularity-app.com/) |
+| `project_tasks_full` | Get all tasks of a project with their notes (batch: task_list + note_list for all tasks). Params: project_id (required), include_notes (default: true) |
 
 ## Справочники (references/)
 

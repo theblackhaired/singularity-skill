@@ -1,0 +1,38 @@
+{
+  "generated": "2026-01-01",
+  "total": 5,
+  "archived": 1,
+  "with_description": 2,
+  "projects": [
+    {
+      "id": "00000000-0000-0000-0000-000000000001",
+      "title": "Work",
+      "emoji": "1f4bc",
+      "color": null,
+      "parent": null,
+      "isNotebook": false,
+      "archived": false,
+      "description": "Рабочие задачи и проекты"
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000002",
+      "title": "Backend",
+      "emoji": null,
+      "color": null,
+      "parent": "00000000-0000-0000-0000-000000000001",
+      "isNotebook": false,
+      "archived": false,
+      "description": null
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000003",
+      "title": "Personal",
+      "emoji": "1f3e0",
+      "color": "blue",
+      "parent": null,
+      "isNotebook": false,
+      "archived": false,
+      "description": "Личные дела, покупки, здоровье"
+    }
+  ]
+}

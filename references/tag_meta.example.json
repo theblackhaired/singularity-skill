@@ -1,0 +1,10 @@
+{
+  "A-example-uuid-1": {
+    "_title": "AI",
+    "description": "Задачи по разработке AI/ML функционала"
+  },
+  "A-example-uuid-2": {
+    "_title": "Frontend",
+    "description": "Frontend разработка (React, TypeScript, UI)"
+  }
+}

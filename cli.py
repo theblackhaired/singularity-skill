@@ -979,6 +979,31 @@ TOOL_CATALOG = {
             }
         }
     },
+
+    # --- Batch Tools ---
+    "task_full": {
+        "desc": "Get task with its note (batch: task_get + note_list). Accepts task ID or Singularity URL.",
+        "params": {
+            "task_id": {
+                "type": "str",
+                "desc": "Task ID (T-xxx) or Singularity URL (singularityapp://... or https://web.singularity-app.com/...)"
+            }
+        }
+    },
+    "project_tasks_full": {
+        "desc": "Get all tasks of a project with their notes (batch: task_list + note_list for all tasks)",
+        "params": {
+            "project_id": {
+                "type": "str",
+                "required": True,
+                "desc": "Project ID (P-xxx)"
+            },
+            "include_notes": {
+                "type": "bool",
+                "desc": "Include task notes (default: true)"
+            }
+        }
+    },
 }
 
 
@@ -1522,12 +1547,130 @@ def _find_tag_handler(client: SingularityClient, res_key: str, args: dict) -> di
 
 
 # Register rebuild_references in dispatch (after function definition)
+def _task_full_handler(client: "SingularityClient", res_key: str, args: dict) -> dict:
+    """Get task with its note (batch: task_get + note_list).
+
+    Accepts task ID (T-xxx) or Singularity URL:
+    - singularityapp://?&page=any&id=T-...
+    - https://web.singularity-app.com/#/?&id=T-...
+    """
+    import re
+    from urllib.parse import urlparse, parse_qs
+
+    task_id_input = args.get("task_id", "").strip()
+
+    # Parse URL if needed
+    task_id = task_id_input
+    if "://" in task_id_input:
+        # URL format: extract id parameter
+        parsed = urlparse(task_id_input)
+
+        if parsed.scheme == "singularityapp":
+            # singularityapp://?&page=any&id=T-xxx
+            qs = parse_qs(parsed.query)
+            if "id" in qs:
+                task_id = qs["id"][0]
+        elif "singularity-app.com" in parsed.netloc:
+            # https://web.singularity-app.com/#/?&id=T-xxx
+            # Fragment contains query string
+            fragment = parsed.fragment
+            if "?" in fragment:
+                qs_part = fragment.split("?", 1)[1]
+                qs = parse_qs(qs_part)
+                if "id" in qs:
+                    task_id = qs["id"][0]
+
+        # Extract T-UUID from id (may have timestamp suffix like -20260222)
+        match = re.search(r'(T-[0-9a-f-]+)', task_id)
+        if match:
+            task_id = match.group(1)
+
+    if not task_id.startswith("T-"):
+        return {"error": f"Invalid task ID: {task_id_input}"}
+
+    # Get task
+    task = client.get(f"/v2/task/{task_id}")
+
+    # Get note if exists
+    note = None
+    note_list = client.get("/v2/note", params={"containerId": task_id, "maxCount": 1})
+    notes = note_list.get("content", [])
+    if notes:
+        note = notes[0]
+
+    return {
+        "task": task,
+        "note": note
+    }
+
+
+def _project_tasks_full_handler(client: "SingularityClient", res_key: str, args: dict) -> dict:
+    """Get all tasks of a project with their notes (batch: task_list + note_list for all tasks)."""
+    project_id = args.get("project_id", "").strip()
+    include_notes = args.get("include_notes", True)
+
+    if not project_id.startswith("P-"):
+        return {"error": f"Invalid project ID: {project_id}"}
+
+    # Get all tasks (API doesn't support project_id filter)
+    # Use task_list tool internally for consistency
+    from copy import copy
+    task_list_args = {"max_count": 1000}
+
+    # Call task_list to get all tasks
+    dispatch_info = TOOL_DISPATCH.get("task_list")
+    if dispatch_info:
+        res_key, handler = dispatch_info
+        tasks_response = handler(client, res_key, task_list_args)
+        all_tasks = tasks_response.get("tasks", [])
+    else:
+        # Fallback to direct API call
+        tasks_response = client.get("/v2/task", params={"maxCount": 1000})
+        all_tasks = tasks_response.get("content", tasks_response.get("tasks", []))
+
+    # Filter tasks by project_id on client side
+    tasks = [t for t in all_tasks if t.get("projectId") == project_id]
+
+    if not include_notes:
+        return {
+            "project_id": project_id,
+            "total_tasks": len(tasks),
+            "tasks": tasks
+        }
+
+    # Get notes for all tasks
+    tasks_with_notes = []
+    for task in tasks:
+        task_id = task["id"]
+
+        # Get note for this task
+        note = None
+        if include_notes:
+            note_list = client.get("/v2/note", params={"containerId": task_id, "maxCount": 1})
+            notes = note_list.get("content", [])
+            if notes:
+                note = notes[0]
+
+        tasks_with_notes.append({
+            "task": task,
+            "note": note
+        })
+
+    return {
+        "project_id": project_id,
+        "total_tasks": len(tasks_with_notes),
+        "tasks_with_notes": tasks_with_notes
+    }
+
+
 TOOL_DISPATCH["rebuild_references"] = (
     "project", _rebuild_references_handler
 )
 TOOL_DISPATCH["generate_meta_template"] = (None, _generate_meta_template_handler)
 TOOL_DISPATCH["find_project"] = (None, _find_project_handler)
 TOOL_DISPATCH["find_tag"] = (None, _find_tag_handler)
+TOOL_DISPATCH["task_full"] = (None, _task_full_handler)
+TOOL_DISPATCH["project_tasks_full"] = (None, _project_tasks_full_handler)
 
 
 def _check_and_refresh_cache(cfg: dict) -> None:

@@ -1,5 +1,17 @@
 # Changelog
 
+## [2026-02-22] — Batch tools for task + note retrieval
+
+### Added - Batch operations
+- Новый инструмент `task_full` — получить задачу с заметкой одним запросом
+- Поддержка парсинга Singularity URLs (singularityapp:// и https://web.singularity-app.com/)
+- Новый инструмент `project_tasks_full` — получить все задачи проекта с заметками
+- Фильтрация по project_id на клиенте (API не поддерживает параметр project_id)
+- Опциональный флаг `include_notes` для отключения загрузки заметок
+- Tool counter: 60 → 62 tools
+
+**Цель:** Уменьшить количество API запросов при работе с задачами и заметками
+
 ## [2026-02-22] — Performance optimizations (indexing + task_groups cache)
 
 ### Added - Task groups cache

@@ -1,0 +1,31 @@
+{
+  "generated": "2026-01-01",
+  "total": 4,
+  "with_description": 1,
+  "tags": [
+    {
+      "id": "00000000-0000-0000-0000-000000000010",
+      "title": "urgent",
+      "color": "red",
+      "hotkey": "1",
+      "parent": null,
+      "description": "Срочные задачи, требующие немедленного внимания"
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000011",
+      "title": "waiting",
+      "color": "yellow",
+      "hotkey": "2",
+      "parent": null,
+      "description": null
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000012",
+      "title": "delegated",
+      "color": "grey",
+      "hotkey": null,
+      "parent": null,
+      "description": null
+    }
+  ]
+}
