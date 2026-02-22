@@ -5,3 +5,5 @@ __pycache__/
 nul
 .claude/
 projects_cache.md
+references/*.json
+!references/*.example.json

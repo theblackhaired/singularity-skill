@@ -23,6 +23,7 @@ from urllib.error import HTTPError, URLError
 sys.stdout.reconfigure(encoding="utf-8")
 
 ROOT = Path(__file__).resolve().parent
+REFS_DIR = ROOT / "references"
 
 # ---------------------------------------------------------------------------
 # HTTP Client
@@ -930,6 +931,54 @@ TOOL_CATALOG = {
             "related_task_id": {"type": "str", "desc": "Filter by task ID"},
         },
     },
+
+    # --- References ---
+    "rebuild_references": {
+        "desc": "Regenerate references cache (projects.json, tags.json) from API and merge descriptions from meta files",
+        "params": {},
+    },
+    "generate_meta_template": {
+        "desc": "Generate meta template file with _title fields for easy editing",
+        "params": {
+            "type": {
+                "type": "str",
+                "required": True,
+                "desc": "Type: 'projects' or 'tags'"
+            },
+            "overwrite": {
+                "type": "bool",
+                "desc": "Overwrite existing file (default: false)"
+            }
+        }
+    },
+    "find_project": {
+        "desc": "Find project by name with auto-rebuild on cache miss",
+        "params": {
+            "name": {
+                "type": "str",
+                "required": True,
+                "desc": "Project name or partial name (case-insensitive search)"
+            },
+            "exact": {
+                "type": "bool",
+                "desc": "Exact match only (default: false, allows partial match)"
+            }
+        }
+    },
+    "find_tag": {
+        "desc": "Find tag by name with auto-rebuild on cache miss",
+        "params": {
+            "name": {
+                "type": "str",
+                "required": True,
+                "desc": "Tag name or partial name (case-insensitive search)"
+            },
+            "exact": {
+                "type": "bool",
+                "desc": "Exact match only (default: false, allows partial match)"
+            }
+        }
+    },
 }
 
 
@@ -960,6 +1009,7 @@ TOOL_DISPATCH["time_stat_bulk_delete"] = (
 )
 
 
+
 # ---------------------------------------------------------------------------
 # Write tools set (blocked in read_only mode)
 # ---------------------------------------------------------------------------
@@ -969,6 +1019,396 @@ for _name in TOOL_CATALOG:
     for _suffix in ("_create", "_update", "_delete", "_bulk_delete"):
         if _name.endswith(_suffix):
             WRITE_TOOLS.add(_name)
+
+
+# ---------------------------------------------------------------------------
+# References Cache (rebuild_references tool)
+# ---------------------------------------------------------------------------
+
+def _rebuild_references_handler(client: SingularityClient, _res_key: str,
+                                _args: dict) -> dict:
+    """Fetch projects and tags from API, merge meta descriptions, write JSON caches."""
+    REFS_DIR.mkdir(exist_ok=True)
+
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+    # --- Fetch all projects ---
+    proj_data = client.get("/v2/project", params={
+        "maxCount": 1000, "includeRemoved": "false",
+    })
+    projects_raw = (
+        proj_data if isinstance(proj_data, list)
+        else proj_data.get("projects", proj_data.get("items", []))
+    )
+    # Filter out removed just in case
+    projects_raw = [p for p in projects_raw if not p.get("removed")]
+
+    # --- Fetch all tags ---
+    tag_data = client.get("/v2/tag", params={
+        "maxCount": 1000, "includeRemoved": "false",
+    })
+    tags_raw = (
+        tag_data if isinstance(tag_data, list)
+        else tag_data.get("tags", tag_data.get("items", []))
+    )
+    tags_raw = [t for t in tags_raw if not t.get("removed")]
+
+    # --- Load meta files ---
+    project_meta_path = REFS_DIR / "project_meta.json"
+    project_meta: dict = {}
+    if project_meta_path.exists():
+        try:
+            project_meta = json.loads(
+                project_meta_path.read_text(encoding="utf-8")
+            )
+        except Exception:
+            pass
+
+    tag_meta_path = REFS_DIR / "tag_meta.json"
+    tag_meta: dict = {}
+    if tag_meta_path.exists():
+        try:
+            tag_meta = json.loads(
+                tag_meta_path.read_text(encoding="utf-8")
+            )
+        except Exception:
+            pass
+
+    # --- Build projects.json ---
+    projects_out = []
+    proj_desc_merged = 0
+    for p in projects_raw:
+        pid = p["id"]
+        meta_entry = project_meta.get(pid, {})
+        # Only take description, ignore _ prefixed fields
+        desc = meta_entry.get("description")
+        if desc:
+            proj_desc_merged += 1
+        projects_out.append({
+            "id": pid,
+            "title": p.get("title", ""),
+            "emoji": p.get("emoji"),
+            "color": p.get("color"),
+            "parent": p.get("parent"),
+            "isNotebook": p.get("isNotebook", False),
+            "archived": p.get("archive", False),
+            "description": desc,
+        })
+
+    # Sort: non-archived first, then alphabetical by title
+    projects_out.sort(
+        key=lambda x: (x["archived"], (x["title"] or "").lower())
+    )
+
+    archived_count = sum(1 for p in projects_out if p["archived"])
+    projects_data = {
+        "generated": datetime.now(timezone.utc).isoformat(),
+        "total": len(projects_out),
+        "archived": archived_count,
+        "with_description": proj_desc_merged,
+        "projects": projects_out,
+    }
+    (REFS_DIR / "projects.json").write_text(
+        json.dumps(projects_data, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+    # --- Build tags.json ---
+    tags_out = []
+    tag_desc_merged = 0
+    for t in tags_raw:
+        tid = t["id"]
+        meta_entry = tag_meta.get(tid, {})
+        # Only take description, ignore _ prefixed fields
+        desc = meta_entry.get("description")
+        if desc:
+            tag_desc_merged += 1
+        tags_out.append({
+            "id": tid,
+            "title": t.get("title", ""),
+            "color": t.get("color"),
+            "hotkey": t.get("hotkey"),
+            "parent": t.get("parent"),
+            "description": desc,
+        })
+
+    tags_out.sort(key=lambda x: (x["title"] or "").lower())
+
+    tags_data = {
+        "generated": datetime.now(timezone.utc).isoformat(),
+        "total": len(tags_out),
+        "with_description": tag_desc_merged,
+        "tags": tags_out,
+    }
+    (REFS_DIR / "tags.json").write_text(
+        json.dumps(tags_data, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+    return {
+        "status": "ok",
+        "generated": today,
+        "projects": f"{len(projects_out)} projects ({archived_count} archived, {proj_desc_merged} with description)",
+        "tags": f"{len(tags_out)} tags ({tag_desc_merged} with description)",
+        "files": [
+            "references/projects.json",
+            "references/tags.json",
+        ],
+    }
+
+
+def _generate_meta_template_handler(client: SingularityClient, res_key: str, args: dict) -> dict:
+    """Generate meta template file with _title for user-friendly editing."""
+    meta_type = args.get("type")
+    if meta_type not in ("projects", "tags"):
+        raise ValueError("type must be 'projects' or 'tags'")
+
+    overwrite = args.get("overwrite", False)
+
+    # Paths
+    cache_file = REFS_DIR / f"{meta_type}.json"
+    meta_file = REFS_DIR / f"{meta_type[:-1]}_meta.json"  # project_meta.json or tag_meta.json
+
+    # Check if cache exists
+    if not cache_file.exists():
+        raise FileNotFoundError(
+            f"{cache_file} not found. Run rebuild_references first."
+        )
+
+    # Check if meta file exists
+    if meta_file.exists() and not overwrite:
+        raise FileExistsError(
+            f"{meta_file} already exists. Use overwrite=true to replace."
+        )
+
+    # Load cache
+    with cache_file.open("r", encoding="utf-8") as f:
+        cache_data = json.load(f)
+
+    items = cache_data.get(meta_type, [])
+
+    # Load existing meta (if exists) to preserve descriptions
+    existing_meta = {}
+    if meta_file.exists():
+        try:
+            with meta_file.open("r", encoding="utf-8") as f:
+                existing_meta = json.load(f)
+        except Exception:
+            pass
+
+    # Build template
+    template = {}
+    for item in items:
+        item_id = item["id"]
+        existing = existing_meta.get(item_id, {})
+
+        template[item_id] = {
+            "_title": item.get("title", ""),
+            "description": existing.get("description", "")
+        }
+
+    # Write template
+    REFS_DIR.mkdir(exist_ok=True)
+    with meta_file.open("w", encoding="utf-8") as f:
+        json.dump(template, f, indent=2, ensure_ascii=False)
+
+    return {
+        "status": "success",
+        "file": str(meta_file),
+        "items": len(template),
+        "overwritten": meta_file.exists() and overwrite
+    }
+
+
+def _find_project_handler(client: SingularityClient, res_key: str, args: dict) -> dict:
+    """Find project by name. Rebuild cache on miss and retry."""
+    name = args.get("name", "").lower()
+    exact = args.get("exact", False)
+
+    if not name:
+        raise ValueError("name is required")
+
+    projects_file = REFS_DIR / "projects.json"
+
+    def search_project():
+        """Search in cache."""
+        if not projects_file.exists():
+            return None
+
+        with projects_file.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        projects = data.get("projects", [])
+
+        # Search
+        matches = []
+        for p in projects:
+            title = p.get("title", "").lower()
+
+            if exact:
+                if title == name:
+                    matches.append(p)
+            else:
+                if name in title:
+                    matches.append(p)
+
+        return matches
+
+    # First attempt
+    matches = search_project()
+
+    if matches:
+        return {
+            "found": True,
+            "count": len(matches),
+            "projects": matches
+        }
+
+    # Cache miss → rebuild
+    print(f"[singularity] Project '{name}' not found in cache, rebuilding...", file=sys.stderr)
+    _rebuild_references_handler(client, None, {})
+
+    # Second attempt
+    matches = search_project()
+
+    if matches:
+        return {
+            "found": True,
+            "count": len(matches),
+            "projects": matches,
+            "cache_rebuilt": True
+        }
+
+    return {
+        "found": False,
+        "count": 0,
+        "projects": [],
+        "cache_rebuilt": True,
+        "message": f"Project '{name}' not found even after cache rebuild"
+    }
+
+
+def _find_tag_handler(client: SingularityClient, res_key: str, args: dict) -> dict:
+    """Find tag by name. Rebuild cache on miss and retry."""
+    name = args.get("name", "").lower()
+    exact = args.get("exact", False)
+
+    if not name:
+        raise ValueError("name is required")
+
+    tags_file = REFS_DIR / "tags.json"
+
+    def search_tag():
+        """Search in cache."""
+        if not tags_file.exists():
+            return None
+
+        with tags_file.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        tags = data.get("tags", [])
+
+        # Search
+        matches = []
+        for t in tags:
+            title = t.get("title", "").lower()
+
+            if exact:
+                if title == name:
+                    matches.append(t)
+            else:
+                if name in title:
+                    matches.append(t)
+
+        return matches
+
+    # First attempt
+    matches = search_tag()
+
+    if matches:
+        return {
+            "found": True,
+            "count": len(matches),
+            "tags": matches
+        }
+
+    # Cache miss → rebuild
+    print(f"[singularity] Tag '{name}' not found in cache, rebuilding...", file=sys.stderr)
+    _rebuild_references_handler(client, None, {})
+
+    # Second attempt
+    matches = search_tag()
+
+    if matches:
+        return {
+            "found": True,
+            "count": len(matches),
+            "tags": matches,
+            "cache_rebuilt": True
+        }
+
+    return {
+        "found": False,
+        "count": 0,
+        "tags": [],
+        "cache_rebuilt": True,
+        "message": f"Tag '{name}' not found even after cache rebuild"
+    }
+
+
+# Register rebuild_references in dispatch (after function definition)
+TOOL_DISPATCH["rebuild_references"] = (
+    "project", _rebuild_references_handler
+)
+TOOL_DISPATCH["generate_meta_template"] = (None, _generate_meta_template_handler)
+TOOL_DISPATCH["find_project"] = (None, _find_project_handler)
+TOOL_DISPATCH["find_tag"] = (None, _find_tag_handler)
+
+
+def _check_and_refresh_cache(cfg: dict) -> None:
+    """Auto-refresh references cache if missing or expired.
+
+    Refreshes if:
+    - Cache files missing
+    - Cache older than cache_ttl_days (from config)
+    """
+    cache_ttl_days = cfg.get("cache_ttl_days", 30)  # Default: 30 days
+
+    projects_file = REFS_DIR / "projects.json"
+    tags_file = REFS_DIR / "tags.json"
+
+    # If cache missing → rebuild
+    if not projects_file.exists() or not tags_file.exists():
+        print("[singularity] Cache missing, rebuilding...", file=sys.stderr)
+        _rebuild_references_handler(SingularityClient(cfg["base_url"], cfg["token"]), None, {})
+        return
+
+    # Check age
+    try:
+        with projects_file.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        generated_str = data.get("generated")
+        if not generated_str:
+            # Old format without timestamp → rebuild
+            print("[singularity] Cache has no timestamp, rebuilding...", file=sys.stderr)
+            _rebuild_references_handler(SingularityClient(cfg["base_url"], cfg["token"]), None, {})
+            return
+
+        generated = datetime.fromisoformat(generated_str)
+        # Make aware if naive
+        if generated.tzinfo is None:
+            generated = generated.replace(tzinfo=timezone.utc)
+
+        age_days = (datetime.now(timezone.utc) - generated).days
+
+        if age_days >= cache_ttl_days:
+            print(f"[singularity] Cache expired ({age_days} days old, TTL={cache_ttl_days}), rebuilding...", file=sys.stderr)
+            _rebuild_references_handler(SingularityClient(cfg["base_url"], cfg["token"]), None, {})
+
+    except Exception as e:
+        print(f"[singularity] Error checking cache age: {e}, rebuilding...", file=sys.stderr)
+        _rebuild_references_handler(SingularityClient(cfg["base_url"], cfg["token"]), None, {})
 
 
 # ---------------------------------------------------------------------------
@@ -1171,6 +1611,13 @@ def main():
                 cfg = load_config()
             except Exception:
                 pass  # Never block tool execution due to cache errors
+
+            # Auto-refresh references cache if needed
+            try:
+                _check_and_refresh_cache(cfg)
+                cfg = load_config()  # Reload in case updated
+            except Exception:
+                pass  # Never block tool execution
 
             if cfg.get("read_only") and tool_name in WRITE_TOOLS:
                 print(

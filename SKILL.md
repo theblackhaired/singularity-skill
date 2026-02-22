@@ -1,8 +1,42 @@
 ---
 name: singularity
-description: REST API client for Singularity App -- task management, projects, habits, kanban boards, notes, time tracking (56 tools)
-version: 1.0.0
+description: REST API client for Singularity App -- task management, projects, habits, kanban boards, notes, time tracking (60 tools)
+version: 1.1.0
 ---
+
+## Проверка готовности (при каждом вызове)
+
+Перед выполнением любого запроса проверь наличие данных:
+
+1. **`references/projects.json`** — если нет → запусти `rebuild_references()`
+2. **`references/tags.json`** — если нет → запусти `rebuild_references()`
+3. **`references/project_meta.json`** — если нет → создать пустой `{}`
+4. **`references/tag_meta.json`** — если нет → создать пустой `{}`
+
+Если все файлы на месте — работай как обычно. Если чего-то не хватает — сначала заполни недостающее, потом выполняй запрос.
+
+## ⚡ ПРАВИЛО ПРИОРИТЕТА КЭША
+
+**КРИТИЧНО: ВСЕГДА используй кэш вместо API запросов!**
+
+| Задача | ❌ НЕ ДЕЛАЙ | ✅ ДЕЛАЙ |
+|--------|-------------|----------|
+| Найти проект по имени | `project_list` + фильтрация | Read `references/projects.json` + поиск |
+| Найти тег по имени | `tag_list` + фильтрация | Read `references/tags.json` + поиск |
+| Получить UUID проекта | API запрос | Read кэша + find_project |
+| Список подпроектов | `project_list(parent=...)` | Read кэша + filter by parent |
+| Проверить существование | API запрос | Read кэша |
+
+**Когда использовать API:**
+- Создание/изменение/удаление данных (write operations)
+- Получение задач, заметок, привычек (нет в кэше)
+- Получение динамических данных (статусы канбан, прогресс привычек)
+
+**Кэш содержит:**
+- ✅ Все проекты с полной структурой (parent-child)
+- ✅ Все теги с полной структурой
+- ✅ Описания из meta файлов
+- ❌ НЕТ задач, заметок, привычек
 
 ## Project Cache
 
@@ -26,11 +60,30 @@ Last update timestamp stored in `config.json` as `"cache_updated": "2026-02-19T1
 
 Direct REST API v2 client for Singularity App. No external dependencies -- uses Python stdlib only (urllib, json, ssl). Bearer token auth via `config.json`.
 
+## Что возвращают get-запросы
+
+### task_get и note_get
+Возвращают **полный объект** из API включая:
+- `note` — описание
+- `tags` — массив ID тегов
+- `deadline` — дедлайн
+- `parent` — ID родительской задачи/группы
+- все остальные поля задачи
+
+### Подзадачи
+**НЕ возвращаются вложенно** в task_get. Для получения подзадач используй:
+```bash
+python cli.py --call '{"tool":"task_list","arguments":{"parent":"T-<task-id>"}}'
+```
+
+То есть отдельный запрос с фильтром `parent`.
+
 ## Quick Router
 
 | User wants to... | Tools to use |
 |---|---|
-| See all projects | `project_list` |
+| See all projects | Read `references/projects.json` (кэш) |
+| Get subprojects of "В работе" | Read кэша, filter by `parent` ID |
 | Create a task | `task_group_list` (find group) then `task_create` |
 | Complete a task | `task_update` with `checked: true` |
 | Add checklist to task | `checklist_create` |
@@ -38,12 +91,16 @@ Direct REST API v2 client for Singularity App. No external dependencies -- uses 
 | Track a habit | `habit_create`, then `habit_progress_create` daily |
 | Add a note to project/task | `note_create` |
 | Track time | `time_stat_create` |
-| Organize with tags | `tag_list`, `tag_create` |
+| Organize with tags | Read `references/tags.json` (кэш) |
 | Find tasks in project | `task_list` with `project_id` |
 | Create a notebook | `project_create` with `isNotebook: true` |
 | Add note to notebook | `task_create` with `isNote: true` in notebook's task group |
+| UUID проекта по имени | `find_project(name="ISS")` или Read кэша |
+| UUID тега по имени | `find_tag(name="AI")` или Read кэша |
+| Обновить справочники | `rebuild_references()` |
+| Сгенерировать шаблон meta | `generate_meta_template(type="projects"/"tags")` |
 
-## Available Tools (56)
+## Available Tools (60)
 
 ### Projects (5 tools)
 
@@ -155,6 +212,154 @@ Direct REST API v2 client for Singularity App. No external dependencies -- uses 
 | `time_stat_update` | Update time entry |
 | `time_stat_delete` | Delete time entry |
 | `time_stat_bulk_delete` | Bulk delete time entries by filter (date_from, date_to, related_task_id) |
+
+### References (4 tools)
+
+| Tool | Description |
+|---|---|
+| `rebuild_references` | Regenerate references cache (projects.json, tags.json) from API and merge descriptions from meta files |
+| `generate_meta_template` | Generate meta template file with _title fields for easy editing (type: 'projects' or 'tags') |
+| `find_project` | Find project by name with auto-rebuild on cache miss (name, exact) |
+| `find_tag` | Find tag by name with auto-rebuild on cache miss (name, exact) |
+
+## Справочники (references/)
+
+Предгенерированные JSON-файлы для быстрого поиска UUID без API-вызовов.
+
+| Файл | Содержимое | Обновление |
+|------|------------|------------|
+| `references/projects.json` | Все проекты: id, title, emoji, color, parent, isNotebook, archived, description | `rebuild_references()` |
+| `references/tags.json` | Все теги: id, title, color, hotkey, parent, description | `rebuild_references()` |
+| `references/project_meta.json` | Ручные описания проектов (назначение) | Редактировать вручную |
+| `references/tag_meta.json` | Ручные описания тегов (назначение) | Редактировать вручную |
+
+### Как использовать
+
+1. **Вместо `project_list()`** — читай `references/projects.json` для получения UUID и описания проекта
+2. **Вместо `tag_list()`** — читай `references/tags.json` для получения UUID тега
+3. **После изменения проектов/тегов** — вызови `rebuild_references()` для обновления кэша
+
+### Автообновление кэша
+
+Кэш автоматически обновляется если:
+1. **Файлы отсутствуют** — при первом запуске или после удаления
+2. **Кэш устарел** — старше `cache_ttl_days` из config.json (по умолчанию 30 дней)
+3. **Cache miss** — проект/тег не найден в кэше (будет реализовано при поиске)
+
+**Настройка TTL в config.json:**
+```json
+{
+  "token": "...",
+  "cache_ttl_days": 30  // Обновлять кэш каждые 30 дней
+}
+```
+
+Установить `null` чтобы отключить TTL (только cache miss и ручное обновление).
+
+**Ручное обновление:**
+```bash
+python cli.py --call '{"tool":"rebuild_references","arguments":{}}'
+```
+
+Логи обновления выводятся в stderr и не мешают JSON output.
+
+### Cache-Miss Logic (поиск с автообновлением)
+
+Инструменты `find_project` и `find_tag` автоматически обновляют кэш если проект/тег не найден:
+
+1. **Поиск в кэше** — ищет проект/тег по имени (case-insensitive)
+2. **Cache miss** — если не найден → автоматически вызывает `rebuild_references()`
+3. **Повторный поиск** — ищет снова в обновлённом кэше
+4. **Результат** — возвращает найденные элементы или сообщение об отсутствии
+
+**Примеры:**
+
+```bash
+# Найти проект ISS (partial match)
+python cli.py --call '{"tool":"find_project","arguments":{"name":"ISS"}}'
+
+# Точное совпадение
+python cli.py --call '{"tool":"find_project","arguments":{"name":"ISS","exact":true}}'
+
+# Найти тег AI
+python cli.py --call '{"tool":"find_tag","arguments":{"name":"AI"}}'
+```
+
+**Формат ответа:**
+```json
+{
+  "found": true,
+  "count": 3,
+  "projects": [...],
+  "cache_rebuilt": false  // true если кэш обновлялся
+}
+```
+
+Это универсальный способ работы с динамически меняющимися проектами (например, Jira интеграция).
+
+### project_meta.json / tag_meta.json — правила описаний
+
+Файлы содержат ручные аннотации. Ключ — UUID, значение — объект с полем `description`.
+
+**Формат:**
+```json
+{
+  "UUID-проекта": {
+    "description": "Краткое описание назначения проекта"
+  }
+}
+```
+
+**Правила генерации description:**
+- Описание должно объяснять **для чего** используется проект/тег
+- Указывать основные задачи/цели
+- Максимум 1 строка, ~5-15 слов
+- Писать на русском
+
+**Примеры (проекты):**
+- `"Рабочие задачи и проекты"`
+- `"Личные дела, покупки, здоровье"`
+- `"Еженедельное планирование"`
+
+**Примеры (теги):**
+- `"Срочные задачи, требующие немедленного внимания"`
+- `"Задачи, ожидающие ответа от других"`
+
+При `rebuild_references()` описания из meta файлов автоматически мержатся в `projects.json` / `tags.json` (поле `description`, null если не задано).
+
+**Поле `_title` для удобства:**
+
+При ручном редактировании meta файлов используй поле `_title` (с подчёркиванием) для справки:
+
+```json
+{
+  "uuid-проекта": {
+    "_title": "Название проекта",  // для удобства, игнорируется при merge
+    "description": "Описание назначения"
+  }
+}
+```
+
+Поля начинающиеся с `_` (подчёркивание) игнорируются при `rebuild_references` и не попадают в итоговый кэш. Используй их для своих заметок и удобства редактирования.
+
+**Генерация шаблона meta файла:**
+
+Вместо ручного создания можно сгенерировать шаблон со всеми UUID и названиями:
+
+```bash
+# Для проектов
+python cli.py --call '{"tool":"generate_meta_template","arguments":{"type":"projects"}}'
+
+# Для тегов
+python cli.py --call '{"tool":"generate_meta_template","arguments":{"type":"tags"}}'
+```
+
+Это создаст (или обновит) `project_meta.json` / `tag_meta.json` с полем `_title` для каждого элемента. Вам останется только заполнить `description`.
+
+**ВАЖНО:** Если meta файл уже существует, добавь `"overwrite": true` чтобы перезаписать:
+```bash
+python cli.py --call '{"tool":"generate_meta_template","arguments":{"type":"tags","overwrite":true}}'
+```
 
 ## Usage
 
@@ -271,10 +476,36 @@ Example:
 
 ## Examples
 
-### List all projects
+### Find subprojects using cache (RECOMMENDED)
+
+```python
+# Вместо API запроса - читай кэш
+import json
+
+with open('references/projects.json', 'r', encoding='utf-8') as f:
+    data = json.load(f)
+
+# Найти проект "В работе"
+target = next(p for p in data['projects'] if p['title'] == 'В работе')
+target_id = target['id']
+
+# Получить все подпроекты
+children = [p for p in data['projects'] if p.get('parent') == target_id]
+
+for p in children:
+    print(f"• {p['title']}")
+```
+
+**Результат:** Мгновенный ответ без API запроса ⚡
+
+### List all projects (use cache instead!)
 
 ```bash
+# ❌ НЕ ДЕЛАЙ ТАК - медленно, расточительно
 python cli.py --call '{"tool": "project_list", "arguments": {}}'
+
+# ✅ ДЕЛАЙ ТАК - быстро, эффективно
+# Read references/projects.json напрямую
 ```
 
 ### Create a project with emoji
