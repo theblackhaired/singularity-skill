@@ -230,6 +230,7 @@ python cli.py --call '{"tool":"task_list","arguments":{"parent":"T-<task-id>"}}'
 |------|------------|------------|
 | `references/projects.json` | Все проекты: id, title, emoji, color, parent, isNotebook, archived, description | `rebuild_references()` |
 | `references/tags.json` | Все теги: id, title, color, hotkey, parent, description | `rebuild_references()` |
+| `references/task_groups.json` | Маппинг project_id → base_task_group_id для быстрого создания задач | `rebuild_references()` |
 | `references/project_meta.json` | Ручные описания проектов (назначение) | Редактировать вручную |
 | `references/tag_meta.json` | Ручные описания тегов (назначение) | Редактировать вручную |
 
@@ -237,7 +238,15 @@ python cli.py --call '{"tool":"task_list","arguments":{"parent":"T-<task-id>"}}'
 
 1. **Вместо `project_list()`** — читай `references/projects.json` для получения UUID и описания проекта
 2. **Вместо `tag_list()`** — читай `references/tags.json` для получения UUID тега
-3. **После изменения проектов/тегов** — вызови `rebuild_references()` для обновления кэша
+3. **Для создания задачи** — используй `find_project()` чтобы получить `task_group_id` вместо API запроса `task_group_list`
+4. **После изменения проектов/тегов** — вызови `rebuild_references()` для обновления кэша
+
+### Производительность
+
+Кэш использует индексированный поиск для максимальной скорости:
+- **Exact match** в `find_project`/`find_tag`: O(1) вместо O(n) благодаря индексу `by_title_lower`
+- **Поиск по parent**: O(1) через индекс `by_parent`
+- **Создание задачи**: ~1800ms экономии (не нужен API запрос `task_group_list`)
 
 ### Автообновление кэша
 

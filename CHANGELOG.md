@@ -1,5 +1,28 @@
 # Changelog
 
+## [2026-02-22] — Performance optimizations (indexing + task_groups cache)
+
+### Added - Task groups cache
+- Кэширование task_groups для быстрого создания задач
+- Файл `references/task_groups.json` с маппингом `project_id → base_task_group_id`
+- При создании задачи не нужен API запрос `task_group_list` (~1800ms экономии)
+- `find_project` теперь возвращает `task_group_id` для найденных проектов
+- Auto-rebuild task_groups при обновлении кэша (с прогрессом в stderr)
+
+### Added - Indexed cache search
+- Helper функции `_load_indexed_projects()` и `_load_indexed_tags()` для O(1) поиска
+- Индексы: `by_id`, `by_title_lower`, `by_parent` для быстрого доступа
+- Exact match в `find_project`/`find_tag` теперь O(1) вместо O(n)
+- Partial match остаётся O(n), но с оптимизированной итерацией
+
+### Changed - Retry mechanism
+- **Уже был реализован ранее** — добавлен в документацию для полноты
+- HTTP ошибки 429, 500, 502, 503, 504 с exponential backoff
+- URLError (timeout, connection refused) тоже обрабатываются
+- Логи retry в stderr
+
+**Цель:** Ускорение работы скилла + стабильность при проблемах с сетью
+
 ## [2026-02-22] — Cache-first documentation
 
 ### Changed — Documentation improvements

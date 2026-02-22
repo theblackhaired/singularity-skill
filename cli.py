@@ -1025,6 +1025,107 @@ for _name in TOOL_CATALOG:
 # References Cache (rebuild_references tool)
 # ---------------------------------------------------------------------------
 
+def _load_indexed_projects():
+    """Load projects.json and build search indexes.
+
+    Returns dict with:
+      - 'raw': list of all projects
+      - 'by_id': {project_id: project}
+      - 'by_title_lower': {title.lower(): project}
+      - 'by_parent': {parent_id: [child_projects]}
+
+    Returns None if file doesn't exist.
+    """
+    projects_file = REFS_DIR / "projects.json"
+    if not projects_file.exists():
+        return None
+
+    with projects_file.open("r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    projects = data.get("projects", [])
+
+    # Build indexes
+    by_id = {}
+    by_title_lower = {}
+    by_parent = {}
+
+    for p in projects:
+        pid = p["id"]
+        title_lower = p.get("title", "").lower()
+        parent = p.get("parent")
+
+        by_id[pid] = p
+        by_title_lower[title_lower] = p
+
+        if parent:
+            if parent not in by_parent:
+                by_parent[parent] = []
+            by_parent[parent].append(p)
+
+    return {
+        "raw": projects,
+        "by_id": by_id,
+        "by_title_lower": by_title_lower,
+        "by_parent": by_parent,
+        "metadata": {
+            "generated": data.get("generated"),
+            "total": data.get("total", len(projects)),
+            "archived": data.get("archived", 0),
+        }
+    }
+
+
+def _load_indexed_tags():
+    """Load tags.json and build search indexes.
+
+    Returns dict with:
+      - 'raw': list of all tags
+      - 'by_id': {tag_id: tag}
+      - 'by_title_lower': {title.lower(): tag}
+      - 'by_parent': {parent_id: [child_tags]}
+
+    Returns None if file doesn't exist.
+    """
+    tags_file = REFS_DIR / "tags.json"
+    if not tags_file.exists():
+        return None
+
+    with tags_file.open("r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    tags = data.get("tags", [])
+
+    # Build indexes
+    by_id = {}
+    by_title_lower = {}
+    by_parent = {}
+
+    for t in tags:
+        tid = t["id"]
+        title_lower = t.get("title", "").lower()
+        parent = t.get("parent")
+
+        by_id[tid] = t
+        by_title_lower[title_lower] = t
+
+        if parent:
+            if parent not in by_parent:
+                by_parent[parent] = []
+            by_parent[parent].append(t)
+
+    return {
+        "raw": tags,
+        "by_id": by_id,
+        "by_title_lower": by_title_lower,
+        "by_parent": by_parent,
+        "metadata": {
+            "generated": data.get("generated"),
+            "total": data.get("total", len(tags)),
+        }
+    }
+
+
 def _rebuild_references_handler(client: SingularityClient, _res_key: str,
                                 _args: dict) -> dict:
     """Fetch projects and tags from API, merge meta descriptions, write JSON caches."""
@@ -1145,14 +1246,64 @@ def _rebuild_references_handler(client: SingularityClient, _res_key: str,
         encoding="utf-8",
     )
 
+    # --- Build task_groups.json (project_id -> base_task_group_id mapping) ---
+    print(f"[singularity] Fetching task groups for {len(projects_out)} projects...", file=sys.stderr)
+
+    task_groups_mapping = {}
+    errors_count = 0
+
+    for idx, p in enumerate(projects_out, 1):
+        project_id = p["id"]
+
+        # Progress indicator every 10 projects
+        if idx % 10 == 0 or idx == len(projects_out):
+            print(f"[singularity] Progress: {idx}/{len(projects_out)} projects", file=sys.stderr)
+
+        try:
+            # Get task groups for this project
+            tg_data = client.get("/v2/task-group", params={
+                "parent": project_id,
+                "maxCount": 100,
+                "includeRemoved": "false",
+            })
+
+            task_groups = tg_data.get("taskGroups", [])
+
+            if task_groups:
+                # Find base task group (usually first one, or one without parent in task group hierarchy)
+                base_tg = task_groups[0]  # First task group is typically the base
+                task_groups_mapping[project_id] = base_tg["id"]
+        except Exception as e:
+            # Don't fail entire rebuild if one project fails
+            errors_count += 1
+            print(f"[singularity] Warning: Failed to fetch task groups for {project_id}: {e}", file=sys.stderr)
+            continue
+
+    task_groups_data = {
+        "generated": datetime.now(timezone.utc).isoformat(),
+        "total_projects": len(projects_out),
+        "mapped": len(task_groups_mapping),
+        "errors": errors_count,
+        "mappings": task_groups_mapping,
+    }
+
+    (REFS_DIR / "task_groups.json").write_text(
+        json.dumps(task_groups_data, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+    print(f"[singularity] Task groups cache built: {len(task_groups_mapping)} mappings", file=sys.stderr)
+
     return {
         "status": "ok",
         "generated": today,
         "projects": f"{len(projects_out)} projects ({archived_count} archived, {proj_desc_merged} with description)",
         "tags": f"{len(tags_out)} tags ({tag_desc_merged} with description)",
+        "task_groups": f"{len(task_groups_mapping)} project→task_group mappings ({errors_count} errors)",
         "files": [
             "references/projects.json",
             "references/tags.json",
+            "references/task_groups.json",
         ],
     }
 
@@ -1221,36 +1372,54 @@ def _generate_meta_template_handler(client: SingularityClient, res_key: str, arg
 
 
 def _find_project_handler(client: SingularityClient, res_key: str, args: dict) -> dict:
-    """Find project by name. Rebuild cache on miss and retry."""
+    """Find project by name using indexed search. Rebuild cache on miss and retry.
+
+    Returns projects with task_group_id field added from task_groups.json cache.
+    """
     name = args.get("name", "").lower()
     exact = args.get("exact", False)
 
     if not name:
         raise ValueError("name is required")
 
-    projects_file = REFS_DIR / "projects.json"
-
     def search_project():
-        """Search in cache."""
-        if not projects_file.exists():
+        """Search in indexed cache and enrich with task_group_id."""
+        indexed = _load_indexed_projects()
+        if not indexed:
             return None
 
-        with projects_file.open("r", encoding="utf-8") as f:
-            data = json.load(f)
+        # Load task_groups mapping
+        task_groups_file = REFS_DIR / "task_groups.json"
+        task_groups_mapping = {}
+        if task_groups_file.exists():
+            try:
+                with task_groups_file.open("r", encoding="utf-8") as f:
+                    tg_data = json.load(f)
+                task_groups_mapping = tg_data.get("mappings", {})
+            except Exception:
+                pass
 
-        projects = data.get("projects", [])
-
-        # Search
         matches = []
-        for p in projects:
-            title = p.get("title", "").lower()
 
-            if exact:
-                if title == name:
-                    matches.append(p)
-            else:
-                if name in title:
-                    matches.append(p)
+        if exact:
+            # O(1) exact match using index
+            match = indexed["by_title_lower"].get(name)
+            if match:
+                # Enrich with task_group_id
+                project_id = match["id"]
+                match_copy = match.copy()
+                match_copy["task_group_id"] = task_groups_mapping.get(project_id)
+                matches.append(match_copy)
+        else:
+            # Partial match - still need to iterate, but more efficient
+            for p in indexed["raw"]:
+                title_lower = p.get("title", "").lower()
+                if name in title_lower:
+                    # Enrich with task_group_id
+                    project_id = p["id"]
+                    p_copy = p.copy()
+                    p_copy["task_group_id"] = task_groups_mapping.get(project_id)
+                    matches.append(p_copy)
 
         return matches
 
@@ -1289,35 +1458,31 @@ def _find_project_handler(client: SingularityClient, res_key: str, args: dict) -
 
 
 def _find_tag_handler(client: SingularityClient, res_key: str, args: dict) -> dict:
-    """Find tag by name. Rebuild cache on miss and retry."""
+    """Find tag by name using indexed search. Rebuild cache on miss and retry."""
     name = args.get("name", "").lower()
     exact = args.get("exact", False)
 
     if not name:
         raise ValueError("name is required")
 
-    tags_file = REFS_DIR / "tags.json"
-
     def search_tag():
-        """Search in cache."""
-        if not tags_file.exists():
+        """Search in indexed cache."""
+        indexed = _load_indexed_tags()
+        if not indexed:
             return None
 
-        with tags_file.open("r", encoding="utf-8") as f:
-            data = json.load(f)
-
-        tags = data.get("tags", [])
-
-        # Search
         matches = []
-        for t in tags:
-            title = t.get("title", "").lower()
 
-            if exact:
-                if title == name:
-                    matches.append(t)
-            else:
-                if name in title:
+        if exact:
+            # O(1) exact match using index
+            match = indexed["by_title_lower"].get(name)
+            if match:
+                matches.append(match)
+        else:
+            # Partial match - still need to iterate, but more efficient
+            for t in indexed["raw"]:
+                title_lower = t.get("title", "").lower()
+                if name in title_lower:
                     matches.append(t)
 
         return matches
@@ -1376,9 +1541,10 @@ def _check_and_refresh_cache(cfg: dict) -> None:
 
     projects_file = REFS_DIR / "projects.json"
     tags_file = REFS_DIR / "tags.json"
+    task_groups_file = REFS_DIR / "task_groups.json"
 
-    # If cache missing → rebuild
-    if not projects_file.exists() or not tags_file.exists():
+    # If any cache missing → rebuild all
+    if not projects_file.exists() or not tags_file.exists() or not task_groups_file.exists():
         print("[singularity] Cache missing, rebuilding...", file=sys.stderr)
         _rebuild_references_handler(SingularityClient(cfg["base_url"], cfg["token"]), None, {})
         return
