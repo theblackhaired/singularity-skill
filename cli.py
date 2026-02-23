@@ -1004,6 +1004,30 @@ TOOL_CATALOG = {
             }
         }
     },
+
+    # --- Inbox Tools ---
+    "inbox_list": {
+        "desc": "Get all tasks in Inbox (tasks without projectId). Returns up to 1000 tasks.",
+        "params": {
+            "include_notes": {
+                "type": "bool",
+                "desc": "Include task notes (default: false)"
+            }
+        }
+    },
+    "inbox_suggest": {
+        "desc": "Suggest project assignments for Inbox tasks based on title/note analysis using cached projects and tags",
+        "params": {
+            "task_ids": {
+                "type": "list",
+                "desc": "List of task IDs to analyze (optional, if not provided analyzes all inbox tasks)"
+            },
+            "min_confidence": {
+                "type": "float",
+                "desc": "Minimum confidence score 0.0-1.0 (default: 0.3)"
+            }
+        }
+    },
 }
 
 
@@ -1663,6 +1687,174 @@ def _project_tasks_full_handler(client: "SingularityClient", res_key: str, args:
     }
 
 
+def _inbox_list_handler(client: "SingularityClient", res_key: str, args: dict) -> dict:
+    """Get all tasks in Inbox (tasks without projectId).
+
+    Uses maxCount=1000 to get all inbox tasks in one request.
+    """
+    include_notes = args.get("include_notes", False)
+
+    # Get all tasks with max limit
+    tasks_response = client.get("/v2/task", params={"maxCount": 1000})
+    all_tasks = tasks_response.get("content", tasks_response.get("tasks", []))
+
+    # Filter tasks without projectId (Inbox tasks)
+    inbox_tasks = [t for t in all_tasks if not t.get("projectId")]
+
+    if not include_notes:
+        return {
+            "total": len(inbox_tasks),
+            "tasks": inbox_tasks
+        }
+
+    # Get notes for all inbox tasks
+    tasks_with_notes = []
+    for task in inbox_tasks:
+        task_id = task["id"]
+
+        # Get note for this task
+        note = None
+        note_list = client.get("/v2/note", params={"containerId": task_id, "maxCount": 1})
+        notes = note_list.get("content", [])
+        if notes:
+            note = notes[0]
+
+        tasks_with_notes.append({
+            "task": task,
+            "note": note
+        })
+
+    return {
+        "total": len(tasks_with_notes),
+        "tasks_with_notes": tasks_with_notes
+    }
+
+
+def _inbox_suggest_handler(client: "SingularityClient", res_key: str, args: dict) -> dict:
+    """Suggest project/tag assignments for Inbox tasks using cached metadata.
+
+    Analyzes task title and note content, matches against project/tag titles and descriptions.
+    Returns suggestions sorted by confidence score.
+    """
+    task_ids = args.get("task_ids")
+    min_confidence = args.get("min_confidence", 0.3)
+
+    # Load cached projects and tags
+    indexed_projects = _load_indexed_projects()
+    indexed_tags = _load_indexed_tags()
+
+    if not indexed_projects or not indexed_tags:
+        return {
+            "error": "Cache not available. Run rebuild_references first."
+        }
+
+    projects = indexed_projects["raw"]
+    tags = indexed_tags["raw"]
+
+    # Load task groups mapping for project suggestions
+    task_groups_file = REFS_DIR / "task_groups.json"
+    task_groups_mapping = {}
+    if task_groups_file.exists():
+        try:
+            with task_groups_file.open("r", encoding="utf-8") as f:
+                tg_data = json.load(f)
+            task_groups_mapping = tg_data.get("mappings", {})
+        except Exception:
+            pass
+
+    # Get inbox tasks to analyze
+    if task_ids:
+        # Get specific tasks
+        tasks_to_analyze = []
+        for task_id in task_ids:
+            try:
+                task = client.get(f"/v2/task/{task_id}")
+                tasks_to_analyze.append(task)
+            except Exception:
+                pass
+    else:
+        # Get all inbox tasks
+        inbox_response = _inbox_list_handler(client, res_key, {"include_notes": False})
+        tasks_to_analyze = inbox_response.get("tasks", [])
+
+    suggestions = []
+
+    for task in tasks_to_analyze:
+        task_id = task.get("id")
+        task_title = task.get("title", "").lower()
+        task_note = task.get("note", "").lower()
+        combined_text = f"{task_title} {task_note}"
+
+        # Score projects
+        project_scores = []
+        for proj in projects:
+            score = 0.0
+            proj_title = proj.get("title", "").lower()
+            proj_desc = proj.get("description", "").lower() if proj.get("description") else ""
+
+            # Title match
+            if proj_title in combined_text:
+                score += 0.6
+            elif any(word in combined_text for word in proj_title.split() if len(word) > 3):
+                score += 0.3
+
+            # Description match
+            if proj_desc and any(word in combined_text for word in proj_desc.split() if len(word) > 4):
+                score += 0.2
+
+            if score >= min_confidence:
+                project_scores.append({
+                    "project_id": proj["id"],
+                    "project_title": proj["title"],
+                    "project_emoji": proj.get("emoji"),
+                    "task_group_id": task_groups_mapping.get(proj["id"]),
+                    "confidence": round(score, 2)
+                })
+
+        # Score tags
+        tag_scores = []
+        for tag in tags:
+            score = 0.0
+            tag_title = tag.get("title", "").lower()
+            tag_desc = tag.get("description", "").lower() if tag.get("description") else ""
+
+            # Title match
+            if tag_title in combined_text:
+                score += 0.7
+            elif any(word in combined_text for word in tag_title.split() if len(word) > 3):
+                score += 0.4
+
+            # Description match
+            if tag_desc and any(word in combined_text for word in tag_desc.split() if len(word) > 4):
+                score += 0.2
+
+            if score >= min_confidence:
+                tag_scores.append({
+                    "tag_id": tag["id"],
+                    "tag_title": tag["title"],
+                    "tag_color": tag.get("color"),
+                    "confidence": round(score, 2)
+                })
+
+        # Sort by confidence
+        project_scores.sort(key=lambda x: x["confidence"], reverse=True)
+        tag_scores.sort(key=lambda x: x["confidence"], reverse=True)
+
+        suggestions.append({
+            "task_id": task_id,
+            "task_title": task.get("title"),
+            "suggested_projects": project_scores[:5],  # Top 5
+            "suggested_tags": tag_scores[:5],  # Top 5
+            "has_suggestions": len(project_scores) > 0 or len(tag_scores) > 0
+        })
+
+    return {
+        "total_tasks": len(suggestions),
+        "suggestions": suggestions,
+        "min_confidence": min_confidence
+    }
+
+
 TOOL_DISPATCH["rebuild_references"] = (
     "project", _rebuild_references_handler
 )
@@ -1671,6 +1863,8 @@ TOOL_DISPATCH["find_project"] = (None, _find_project_handler)
 TOOL_DISPATCH["find_tag"] = (None, _find_tag_handler)
 TOOL_DISPATCH["task_full"] = (None, _task_full_handler)
 TOOL_DISPATCH["project_tasks_full"] = (None, _project_tasks_full_handler)
+TOOL_DISPATCH["inbox_list"] = (None, _inbox_list_handler)
+TOOL_DISPATCH["inbox_suggest"] = (None, _inbox_suggest_handler)
 
 
 def _check_and_refresh_cache(cfg: dict) -> None:

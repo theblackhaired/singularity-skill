@@ -1,7 +1,7 @@
 ---
 name: singularity
-description: REST API client for Singularity App -- task management, projects, habits, kanban boards, notes, time tracking (60 tools)
-version: 1.1.0
+description: REST API client for Singularity App -- task management, projects, habits, kanban boards, notes, time tracking (64 tools)
+version: 1.2.0
 ---
 
 ## Проверка готовности (при каждом вызове)
@@ -101,8 +101,10 @@ python cli.py --call '{"tool":"task_list","arguments":{"parent":"T-<task-id>"}}'
 | Сгенерировать шаблон meta | `generate_meta_template(type="projects"/"tags")` |
 | Получить задачу с заметкой | `task_full(task_id="T-xxx")` или передать Singularity URL |
 | Все задачи проекта с заметками | `project_tasks_full(project_id="P-xxx", include_notes=true)` |
+| Посмотреть задачи в Inbox | `inbox_list()` — все задачи без projectId |
+| Предложить распределение Inbox | `inbox_suggest()` — анализ и предложения проектов/тегов |
 
-## Available Tools (62)
+## Available Tools (64)
 
 ### Projects (5 tools)
 
@@ -230,6 +232,13 @@ python cli.py --call '{"tool":"task_list","arguments":{"parent":"T-<task-id>"}}'
 |---|---|
 | `task_full` | Get task with its note (batch: task_get + note_list). Accepts task ID or Singularity URL (singularityapp:// or https://web.singularity-app.com/) |
 | `project_tasks_full` | Get all tasks of a project with their notes (batch: task_list + note_list for all tasks). Params: project_id (required), include_notes (default: true) |
+
+### Inbox Tools (2 tools)
+
+| Tool | Description |
+|---|---|
+| `inbox_list` | Get all tasks in Inbox (tasks without projectId). Returns up to 1000 tasks. Params: include_notes (default: false) |
+| `inbox_suggest` | Suggest project/tag assignments for Inbox tasks based on title/note analysis using cached projects and tags. Params: task_ids (optional list), min_confidence (default: 0.3). Returns suggestions sorted by confidence score |
 
 ## Справочники (references/)
 
