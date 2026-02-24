@@ -190,9 +190,10 @@ RESOURCES = {
         },
         "body_fields": [
             "title", "note", "priority", "start", "useTime", "deadline",
-            "parent", "tags", "complete", "completeLast", "state", "checked",
-            "showInBasket", "projectId", "recurrence", "journalDate",
-            "isNote", "notify", "notifies", "alarmNotify", "externalId",
+            "parent", "group", "tags", "complete", "completeLast", "state",
+            "checked", "showInBasket", "projectId", "recurrence",
+            "journalDate", "isNote", "notify", "notifies", "alarmNotify",
+            "externalId",
         ],
     },
     "note": {
@@ -520,7 +521,8 @@ TOOL_CATALOG = {
         "desc": "Create task",
         "params": {
             "title": {"type": "str", "required": True, "desc": "Task title"},
-            "parent": {"type": "str", "required": True, "desc": "Task group ID (parent)"},
+            "group": {"type": "str", "required": True, "desc": "Task group ID (Q-xxx)"},
+            "parent": {"type": "str", "desc": "Parent task ID for subtasks (T-xxx)"},
             "note": {"type": "str", "desc": "Task description"},
             "priority": {"type": "int", "desc": "Priority (default 1)"},
             "start": {"type": "str", "desc": "Start datetime ISO"},
@@ -552,7 +554,8 @@ TOOL_CATALOG = {
             "start": {"type": "str", "desc": "Start datetime ISO"},
             "useTime": {"type": "bool", "desc": "false=date only, true=real time GMT+3"},
             "deadline": {"type": "str", "desc": "Deadline datetime ISO"},
-            "parent": {"type": "str", "desc": "Task group ID"},
+            "group": {"type": "str", "desc": "Task group ID (Q-xxx)"},
+            "parent": {"type": "str", "desc": "Parent task ID for subtasks (T-xxx)"},
             "tags": {"type": "list", "desc": "Tag IDs array"},
             "complete": {"type": "str", "desc": "Completion datetime ISO"},
             "completeLast": {"type": "str", "desc": "Last completion datetime"},

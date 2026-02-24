@@ -131,7 +131,7 @@ python cli.py --call '{"tool":"task_list","arguments":{"parent":"T-<task-id>"}}'
 |---|---|
 | `task_list` | List tasks (params: max_count, offset, project_id, parent, start_date_from/to, include_removed/archived) |
 | `task_get` | Get task by ID |
-| `task_create` | Create task (title, parent required; note, priority, start, deadline, tags, recurrence...) |
+| `task_create` | Create task (title, group required; note, priority, start, deadline, tags, parent for subtasks...) |
 | `task_update` | Update task |
 | `task_delete` | Delete task |
 
@@ -433,11 +433,12 @@ Set `"read_only": true` to block all write operations. Read tools work normally.
 
 When creating a task, **always** provide:
 1. `title` — заголовок задачи
-2. `projectId` — ID проекта (`P-{uuid}`). **Обязательно указывать**, даже если задача — подзадача
-3. `parent` — **только для подзадач**: ID родительской задачи (`T-{uuid}`). Для задач в **корне проекта** — **НЕ указывать `parent`**, достаточно `projectId`. `Q-...` (task group) **не работает** как parent
-4. `start` — дата задачи (не deadline!). Формат: `"2026-02-20"` для даты, ISO для времени
-5. `useTime: false` — если нужна только дата, без конкретного времени
-6. **НЕ ставить `deadline`**, если пользователь просит дату — это `start`
+2. `group` — ID группы задач (`Q-{uuid}`). Получить через `task_group_list`. **Обязательное поле**
+3. `projectId` — ID проекта (`P-{uuid}`). **Обязательно указывать**, даже если задача — подзадача
+4. `parent` — **только для подзадач**: ID родительской задачи (`T-{uuid}`). Для задач в **корне проекта** — **НЕ указывать `parent`**
+5. `start` — дата задачи (не deadline!). Формат: `"2026-02-20"` для даты, ISO для времени
+6. `useTime: false` — если нужна только дата, без конкретного времени
+7. **НЕ ставить `deadline`**, если пользователь просит дату — это `start`
 
 After task creation:
 - Структурированные пункты → `checklist_create` (не текстом в описание)
@@ -546,7 +547,7 @@ python cli.py --call '{"tool": "project_create", "arguments": {"title": "My Proj
 python cli.py --call '{"tool": "task_group_list", "arguments": {"parent": "P-<project-uuid>"}}'
 
 # 2. Create the task in that group
-python cli.py --call '{"tool": "task_create", "arguments": {"title": "Buy groceries", "parent": "<task-group-id>", "priority": 1}}'
+python cli.py --call '{"tool": "task_create", "arguments": {"title": "Buy groceries", "group": "<task-group-id>", "priority": 1}}'
 ```
 
 ### Add a checklist to a task
