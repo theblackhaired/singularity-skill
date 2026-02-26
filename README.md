@@ -1,5 +1,9 @@
 # Singularity App Skill
 
+## What's New
+
+**Jedi Techniques (Dorofeev)** — optional productivity skill with 8 modes based on Maxim Dorofeev's "Jedi Techniques" book. Brain dump, task reviews, decomposition, focus mode, incubator, context agendas, trigger lists, daily checklists. Activates only on request via natural language triggers. See [`singularity-jedi.md`](../singularity-jedi.md).
+
 Script-based CLI skill for [Singularity App](https://singularity-app.com) task management API.
 
 56 tools covering 11 resources: projects, tasks, task groups, notes, kanban boards, habits, habit progress, checklists, tags, time tracking.
