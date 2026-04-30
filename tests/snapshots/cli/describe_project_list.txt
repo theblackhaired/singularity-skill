@@ -1,0 +1,28 @@
+{
+  "name": "project_list",
+  "description": "List projects",
+  "inputSchema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "properties": {
+      "max_count": {
+        "type": "integer",
+        "description": "Max results (<=1000)",
+        "default": 100
+      },
+      "offset": {
+        "type": "integer",
+        "description": "Pagination offset (>=0)"
+      },
+      "include_removed": {
+        "type": "boolean",
+        "description": "Include removed projects"
+      },
+      "include_archived": {
+        "type": "boolean",
+        "description": "Include archived projects"
+      }
+    },
+    "required": []
+  }
+}

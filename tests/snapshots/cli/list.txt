@@ -1,0 +1,258 @@
+[
+  {
+    "name": "project_list",
+    "description": "List projects"
+  },
+  {
+    "name": "project_get",
+    "description": "Get project by ID"
+  },
+  {
+    "name": "project_create",
+    "description": "Create project"
+  },
+  {
+    "name": "project_update",
+    "description": "Update project"
+  },
+  {
+    "name": "project_delete",
+    "description": "Delete project"
+  },
+  {
+    "name": "project_describe",
+    "description": "Edit local project descriptions in references/projects.json"
+  },
+  {
+    "name": "task_group_list",
+    "description": "List task groups"
+  },
+  {
+    "name": "task_group_get",
+    "description": "Get task group by ID"
+  },
+  {
+    "name": "task_group_create",
+    "description": "Create task group"
+  },
+  {
+    "name": "task_group_update",
+    "description": "Update task group"
+  },
+  {
+    "name": "task_group_delete",
+    "description": "Delete task group"
+  },
+  {
+    "name": "task_list",
+    "description": "List tasks"
+  },
+  {
+    "name": "task_get",
+    "description": "Get task by ID"
+  },
+  {
+    "name": "task_create",
+    "description": "Create task"
+  },
+  {
+    "name": "task_update",
+    "description": "Update task"
+  },
+  {
+    "name": "task_delete",
+    "description": "Delete task"
+  },
+  {
+    "name": "note_list",
+    "description": "List notes"
+  },
+  {
+    "name": "note_get",
+    "description": "Get note by ID"
+  },
+  {
+    "name": "note_create",
+    "description": "Create note"
+  },
+  {
+    "name": "note_update",
+    "description": "Update note"
+  },
+  {
+    "name": "note_delete",
+    "description": "Delete note"
+  },
+  {
+    "name": "kanban_status_list",
+    "description": "List kanban statuses"
+  },
+  {
+    "name": "kanban_status_get",
+    "description": "Get kanban status by ID"
+  },
+  {
+    "name": "kanban_status_create",
+    "description": "Create kanban status"
+  },
+  {
+    "name": "kanban_status_update",
+    "description": "Update kanban status"
+  },
+  {
+    "name": "kanban_status_delete",
+    "description": "Delete kanban status"
+  },
+  {
+    "name": "kanban_task_status_list",
+    "description": "List kanban task statuses"
+  },
+  {
+    "name": "kanban_task_status_get",
+    "description": "Get kanban task status by ID"
+  },
+  {
+    "name": "kanban_task_status_create",
+    "description": "Create kanban task status"
+  },
+  {
+    "name": "kanban_task_status_update",
+    "description": "Update kanban task status"
+  },
+  {
+    "name": "kanban_task_status_delete",
+    "description": "Delete kanban task status"
+  },
+  {
+    "name": "habit_list",
+    "description": "List habits"
+  },
+  {
+    "name": "habit_get",
+    "description": "Get habit by ID"
+  },
+  {
+    "name": "habit_create",
+    "description": "Create habit"
+  },
+  {
+    "name": "habit_update",
+    "description": "Update habit"
+  },
+  {
+    "name": "habit_delete",
+    "description": "Delete habit"
+  },
+  {
+    "name": "habit_progress_list",
+    "description": "List habit progress entries"
+  },
+  {
+    "name": "habit_progress_get",
+    "description": "Get habit progress entry by ID"
+  },
+  {
+    "name": "habit_progress_create",
+    "description": "Create habit progress entry"
+  },
+  {
+    "name": "habit_progress_update",
+    "description": "Update habit progress entry"
+  },
+  {
+    "name": "habit_progress_delete",
+    "description": "Delete habit progress entry"
+  },
+  {
+    "name": "checklist_list",
+    "description": "List checklist items"
+  },
+  {
+    "name": "checklist_get",
+    "description": "Get checklist item by ID"
+  },
+  {
+    "name": "checklist_create",
+    "description": "Create checklist item"
+  },
+  {
+    "name": "checklist_update",
+    "description": "Update checklist item"
+  },
+  {
+    "name": "checklist_delete",
+    "description": "Delete checklist item"
+  },
+  {
+    "name": "tag_list",
+    "description": "List tags"
+  },
+  {
+    "name": "tag_get",
+    "description": "Get tag by ID"
+  },
+  {
+    "name": "tag_create",
+    "description": "Create tag"
+  },
+  {
+    "name": "tag_update",
+    "description": "Update tag"
+  },
+  {
+    "name": "tag_delete",
+    "description": "Delete tag"
+  },
+  {
+    "name": "time_stat_list",
+    "description": "List time tracking entries"
+  },
+  {
+    "name": "time_stat_get",
+    "description": "Get time tracking entry by ID"
+  },
+  {
+    "name": "time_stat_create",
+    "description": "Create time tracking entry"
+  },
+  {
+    "name": "time_stat_update",
+    "description": "Update time tracking entry"
+  },
+  {
+    "name": "time_stat_delete",
+    "description": "Delete time tracking entry"
+  },
+  {
+    "name": "time_stat_bulk_delete",
+    "description": "Bulk delete time tracking entries by filter"
+  },
+  {
+    "name": "rebuild_references",
+    "description": "Regenerate references cache from API while preserving project descriptions in projects.json"
+  },
+  {
+    "name": "generate_meta_template",
+    "description": "Generate meta template file with _title fields for easy editing"
+  },
+  {
+    "name": "find_project",
+    "description": "Find project by name with auto-rebuild on cache miss"
+  },
+  {
+    "name": "find_tag",
+    "description": "Find tag by name with auto-rebuild on cache miss"
+  },
+  {
+    "name": "task_full",
+    "description": "Get task with its note (batch: task_get + note_list). Accepts task ID or Singularity URL."
+  },
+  {
+    "name": "project_tasks_full",
+    "description": "Get all tasks of a project with their notes (batch: task_list + note_list for all tasks)"
+  },
+  {
+    "name": "inbox_list",
+    "description": "Get all tasks in Inbox (tasks without projectId). Returns up to 1000 tasks."
+  }
+]

@@ -6,126 +6,58 @@ Usage:
   python cli.py --describe project_list
   python cli.py --call '{"tool":"project_list","arguments":{}}'
 
-Python 3.8+ stdlib only (urllib, json, ssl). Bearer token auth.
+Python 3.10+ stdlib only (urllib, json, ssl) — PEP 604 union syntax used.
+Test/dev dependencies in requirements-dev.txt (jsonschema). Bearer token auth.
 """
 
 import argparse
 import json
 import sys
-import ssl
 import time
-from datetime import datetime, timezone
 from pathlib import Path
-from urllib.request import Request, urlopen
-from urllib.parse import urlencode, quote
-from urllib.error import HTTPError, URLError
 
 sys.stdout.reconfigure(encoding="utf-8")
 
 ROOT = Path(__file__).resolve().parent
 REFS_DIR = ROOT / "references"
 
-# ---------------------------------------------------------------------------
-# HTTP Client
-# ---------------------------------------------------------------------------
+# Skill version — bumped per references/contract/decisions.md §Versioning.
+# 1.0.0  Iter 0 baseline
+# 1.1.0  Iter 1: derived tools return additive {status,partial,note_status,warnings}
+# 1.2.0  Iter 2+3: paginator (no more silent maxCount=1000 truncation),
+#                  atomic cache writes with CacheMeta, secrets-safe auto-refresh
+# 1.3.0  Iter 4 (T4.3): --describe emits valid JSON Schema draft-07
+#                       (closes Drift 4: int→integer, str→string, items/properties)
+#                       + Iter 7: token redaction in error bodies (security)
+# 1.4.0  Iter 4 (T4.4-T4.9): tools.json regen + --verify-metadata + schema tests
+#                            + tools.json now includes derived tools (closes Drift 3)
+# 1.4.2  Cache correctness: incomplete rebuilds and degraded read responses.
+# 1.5.0  JSON-only project descriptions, project_describe, migration state.
+SKILL_VERSION = "1.5.0"
 
-class SingularityClient:
-    """Low-level HTTP client with Bearer auth, SSL context and retry."""
-
-    RETRYABLE_CODES = {429, 500, 502, 503, 504}
-
-    def __init__(self, base_url: str, token: str,
-                 max_retries: int = 3, timeout: int = 30):
-        self.base_url = base_url.rstrip("/")
-        self.token = token
-        self.max_retries = max_retries
-        self.timeout = timeout
-
-        self._headers = {
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-        }
-
-        self._ssl_ctx = ssl.create_default_context()
-
-    # -- internal ----------------------------------------------------------
-
-    def _request(self, method: str, path: str, params: dict = None,
-                 body: dict = None):
-        url = self.base_url + path
-        if params:
-            clean = {k: v for k, v in params.items() if v is not None}
-            if clean:
-                url += "?" + urlencode(clean)
-
-        data = json.dumps(body).encode("utf-8") if body is not None else None
-
-        for attempt in range(1, self.max_retries + 1):
-            try:
-                req = Request(url, data=data, headers=self._headers,
-                              method=method)
-                with urlopen(req, context=self._ssl_ctx,
-                             timeout=self.timeout) as resp:
-                    raw = resp.read()
-                    if not raw:
-                        return {}
-                    return json.loads(raw.decode("utf-8"))
-            except HTTPError as exc:
-                if exc.code in self.RETRYABLE_CODES and attempt < self.max_retries:
-                    delay = 2 ** (attempt - 1)
-                    print(f"HTTP {exc.code}, retry in {delay}s "
-                          f"({attempt}/{self.max_retries})...",
-                          file=sys.stderr)
-                    time.sleep(delay)
-                    continue
-                err_body = ""
-                try:
-                    err_body = exc.read().decode("utf-8", errors="replace")
-                except Exception:
-                    pass
-                # Try to parse Singularity error format {errors:[{code,message}]}
-                try:
-                    err_json = json.loads(err_body)
-                    errors = err_json.get("errors", [])
-                    if errors:
-                        msgs = "; ".join(
-                            f"[{e.get('code','')}] {e.get('message','')}"
-                            for e in errors
-                        )
-                        raise RuntimeError(
-                            f"HTTP {exc.code} on {method} {url}: {msgs}"
-                        ) from exc
-                except (json.JSONDecodeError, AttributeError):
-                    pass
-                raise RuntimeError(
-                    f"HTTP {exc.code} {exc.reason} on {method} {url}\n"
-                    f"{err_body}"
-                ) from exc
-            except URLError as exc:
-                if attempt < self.max_retries:
-                    delay = 2 ** (attempt - 1)
-                    print(f"Network error, retry in {delay}s "
-                          f"({attempt}/{self.max_retries})...",
-                          file=sys.stderr)
-                    time.sleep(delay)
-                    continue
-                raise
-
-    # -- public verbs -------------------------------------------------------
-
-    def get(self, path: str, params: dict = None):
-        return self._request("GET", path, params=params)
-
-    def post(self, path: str, data: dict = None):
-        return self._request("POST", path, body=data)
-
-    def patch(self, path: str, data: dict = None):
-        return self._request("PATCH", path, body=data)
-
-    def delete(self, path: str, params: dict = None):
-        return self._request("DELETE", path, params=params)
-
+# Iteration 1: notes resolved per Decision A in notes-decision.md.
+from note_resolver import resolve_note  # noqa: E402  -- after sys.stdout reconfigure
+# Iteration 6 / T6.9: --doctor logic extracted to dedicated module.
+from doctor import doctor_run as _doctor_run_impl  # noqa: E402
+# HTTP client extracted to dedicated module.
+from client import SingularityClient  # noqa: E402
+from errors import StructuredError, _error_response  # noqa: E402
+# Iteration 2: shared pagination helper (T2.1). Kept in cli namespace for tests.
+from pagination import iterate_pages   # noqa: E402
+# Cache primitives and Stage 2 cache handlers.
+from cache import (                     # noqa: E402
+    read_cache,
+    _sha256_file,
+    _projects_path,
+    _count_project_descriptions,
+    _ensure_description_migration_meta,
+    _load_projects_data,
+    _write_projects_data,
+    _complete_description_migration_if_pending,
+    _check_description_migration,
+    _rebuild_references_handler,
+    _check_and_refresh_cache,
+)
 
 # ---------------------------------------------------------------------------
 # Config
@@ -146,246 +78,62 @@ def load_config() -> dict:
 # list_params: {api_param: (arg_name, type, default)}
 # body_fields: [field_name, ...]  -- fields accepted in create/update body
 
-RESOURCES = {
-    "project": {
-        "path": "/v2/project",
-        "list_params": {
-            "maxCount": ("max_count", "int", 100),
-            "offset": ("offset", "int", None),
-            "includeRemoved": ("include_removed", "bool", None),
-            "includeArchived": ("include_archived", "bool", None),
-        },
-        "body_fields": [
-            "title", "note", "start", "end", "emoji", "color", "parent",
-            "parentOrder", "isNotebook", "tags", "showInBasket", "deleteDate",
-            "externalId", "reviewValidationDate", "reviewValidationInterval",
-            "journalDate",
-        ],
-    },
-    "task_group": {
-        "path": "/v2/task-group",
-        "list_params": {
-            "maxCount": ("max_count", "int", 100),
-            "offset": ("offset", "int", None),
-            "includeRemoved": ("include_removed", "bool", None),
-            "parent": ("parent", "str", None),
-        },
-        "body_fields": [
-            "title", "parent", "parentOrder", "fake", "externalId",
-        ],
-    },
-    "task": {
-        "path": "/v2/task",
-        "list_params": {
-            "maxCount": ("max_count", "int", 100),
-            "offset": ("offset", "int", None),
-            "includeRemoved": ("include_removed", "bool", None),
-            "includeArchived": ("include_archived", "bool", None),
-            "includeAllRecurrenceInstances": (
-                "include_all_recurrence_instances", "bool", None),
-            "projectId": ("project_id", "str", None),
-            "parent": ("parent", "str", None),
-            "startDateFrom": ("start_date_from", "str", None),
-            "startDateTo": ("start_date_to", "str", None),
-        },
-        "body_fields": [
-            "title", "note", "priority", "start", "useTime", "deadline",
-            "parent", "tags", "complete", "completeLast", "state", "checked",
-            "showInBasket", "projectId", "recurrence", "journalDate",
-            "isNote", "notify", "notifies", "alarmNotify", "externalId",
-        ],
-    },
-    "note": {
-        "path": "/v2/note",
-        "list_params": {
-            "maxCount": ("max_count", "int", 100),
-            "offset": ("offset", "int", None),
-            "containerId": ("container_id", "str", None),
-        },
-        "body_fields": [
-            "containerId", "content", "contentType", "externalId",
-        ],
-    },
-    "kanban_status": {
-        "path": "/v2/kanban-status",
-        "list_params": {
-            "maxCount": ("max_count", "int", 100),
-            "offset": ("offset", "int", None),
-            "includeRemoved": ("include_removed", "bool", None),
-            "projectId": ("project_id", "str", None),
-        },
-        "body_fields": [
-            "name", "projectId", "kanbanOrder", "numberOfColumns",
-            "externalId",
-        ],
-    },
-    "kanban_task_status": {
-        "path": "/v2/kanban-task-status",
-        "list_params": {
-            "maxCount": ("max_count", "int", 100),
-            "offset": ("offset", "int", None),
-            "includeRemoved": ("include_removed", "bool", None),
-            "taskId": ("task_id", "str", None),
-            "statusId": ("status_id", "str", None),
-        },
-        "body_fields": [
-            "taskId", "statusId", "kanbanOrder", "externalId",
-        ],
-    },
-    "habit": {
-        "path": "/v2/habit",
-        "list_params": {
-            "maxCount": ("max_count", "int", 100),
-            "offset": ("offset", "int", None),
-        },
-        "body_fields": [
-            "title", "description", "color", "order", "status",
-            "externalId",
-        ],
-    },
-    "habit_progress": {
-        "path": "/v2/habit-progress",
-        "list_params": {
-            "maxCount": ("max_count", "int", 100),
-            "offset": ("offset", "int", None),
-            "habit": ("habit", "str", None),
-            "startDate": ("start_date", "str", None),
-            "endDate": ("end_date", "str", None),
-        },
-        "body_fields": [
-            "habit", "date", "progress", "externalId",
-        ],
-    },
-    "checklist": {
-        "path": "/v2/checklist-item",
-        "list_params": {
-            "maxCount": ("max_count", "int", 100),
-            "offset": ("offset", "int", None),
-            "includeRemoved": ("include_removed", "bool", None),
-            "parent": ("parent", "str", None),
-        },
-        "body_fields": [
-            "parent", "title", "done", "crypted", "parentOrder",
-        ],
-    },
-    "tag": {
-        "path": "/v2/tag",
-        "list_params": {
-            "maxCount": ("max_count", "int", 100),
-            "offset": ("offset", "int", None),
-            "includeRemoved": ("include_removed", "bool", None),
-            "parent": ("parent", "str", None),
-        },
-        "body_fields": [
-            "title", "color", "hotkey", "parent", "parentOrder",
-            "externalId",
-        ],
-    },
-    "time_stat": {
-        "path": "/v2/time-stat",
-        "list_params": {
-            "maxCount": ("max_count", "int", 100),
-            "offset": ("offset", "int", None),
-            "dateFrom": ("date_from", "str", None),
-            "dateTo": ("date_to", "str", None),
-            "relatedTaskId": ("related_task_id", "str", None),
-        },
-        "body_fields": [
-            "start", "secondsPassed", "relatedTaskId", "source",
-        ],
-    },
-}
+from resources import RESOURCES  # noqa: E402
+from crud import (  # noqa: E402
+    _list_handler,
+    _get_handler,
+    _create_handler,
+    _update_handler,
+    _delete_handler,
+    _time_stat_bulk_delete_handler,
+)
+import derived as _derived  # noqa: E402
 
 
-# ---------------------------------------------------------------------------
-# Generic CRUD handlers
-# ---------------------------------------------------------------------------
-
-def _coerce(value, type_str: str):
-    """Coerce a value to the expected API type."""
-    if value is None:
-        return None
-    if type_str == "int":
-        return int(value)
-    if type_str == "bool":
-        if isinstance(value, bool):
-            return value
-        if isinstance(value, str):
-            return value.lower() in ("true", "1", "yes")
-        return bool(value)
-    return str(value)
+def _sync_derived_module() -> None:
+    _derived.REFS_DIR = REFS_DIR
+    if "_rebuild_references_handler" in globals():
+        _derived._rebuild_references_handler = _rebuild_references_handler
 
 
-def _list_handler(client: SingularityClient, res_key: str,
-                  args: dict) -> dict:
-    res = RESOURCES[res_key]
-    params = {}
-    for api_param, (arg_name, ptype, default) in res["list_params"].items():
-        val = args.get(arg_name, default)
-        if val is not None:
-            val = _coerce(val, ptype)
-            # Convert Python bools to lowercase string for query params
-            if isinstance(val, bool):
-                val = str(val).lower()
-            params[api_param] = val
-    return client.get(res["path"], params)
+def _load_indexed_projects():
+    _sync_derived_module()
+    return _derived._load_indexed_projects()
 
 
-def _get_handler(client: SingularityClient, res_key: str,
-                 args: dict) -> dict:
-    res = RESOURCES[res_key]
-    entity_id = args.get("id")
-    if not entity_id:
-        raise ValueError("id is required")
-    return client.get(f"{res['path']}/{quote(str(entity_id))}")
+def _load_indexed_tags():
+    _sync_derived_module()
+    return _derived._load_indexed_tags()
 
 
-def _create_handler(client: SingularityClient, res_key: str,
-                    args: dict) -> dict:
-    res = RESOURCES[res_key]
-    body = {}
-    for field in res["body_fields"]:
-        if field in args:
-            body[field] = args[field]
-    return client.post(res["path"], body)
+def _generate_meta_template_handler(client: SingularityClient, res_key: str, args: dict) -> dict:
+    _sync_derived_module()
+    return _derived._generate_meta_template_handler(client, res_key, args)
 
 
-def _update_handler(client: SingularityClient, res_key: str,
-                    args: dict) -> dict:
-    res = RESOURCES[res_key]
-    entity_id = args.get("id")
-    if not entity_id:
-        raise ValueError("id is required")
-    body = {}
-    for field in res["body_fields"]:
-        if field in args:
-            body[field] = args[field]
-    if not body:
-        raise ValueError("At least one field to update is required")
-    return client.patch(f"{res['path']}/{quote(str(entity_id))}", body)
+def _find_project_handler(client: SingularityClient, res_key: str, args: dict) -> dict:
+    _sync_derived_module()
+    return _derived._find_project_handler(client, res_key, args)
 
 
-def _delete_handler(client: SingularityClient, res_key: str,
-                    args: dict) -> dict:
-    res = RESOURCES[res_key]
-    entity_id = args.get("id")
-    if not entity_id:
-        raise ValueError("id is required")
-    result = client.delete(f"{res['path']}/{quote(str(entity_id))}")
-    return result if result else {"success": True}
+def _find_tag_handler(client: SingularityClient, res_key: str, args: dict) -> dict:
+    _sync_derived_module()
+    return _derived._find_tag_handler(client, res_key, args)
 
 
-def _time_stat_bulk_delete_handler(client: SingularityClient, res_key: str,
-                                   args: dict) -> dict:
-    params = {}
-    if "date_from" in args:
-        params["dateFrom"] = args["date_from"]
-    if "date_to" in args:
-        params["dateTo"] = args["date_to"]
-    if "related_task_id" in args:
-        params["relatedTaskId"] = args["related_task_id"]
-    result = client.delete("/v2/time-stat", params=params)
-    return result if result else {"success": True}
+def _task_full_handler(client: "SingularityClient", res_key: str, args: dict) -> dict:
+    _sync_derived_module()
+    return _derived._task_full_handler(client, res_key, args)
+
+
+def _project_tasks_full_handler(client: "SingularityClient", res_key: str, args: dict) -> dict:
+    _sync_derived_module()
+    return _derived._project_tasks_full_handler(client, res_key, args)
+
+
+def _inbox_list_handler(client: "SingularityClient", res_key: str, args: dict) -> dict:
+    _sync_derived_module()
+    return _derived._inbox_list_handler(client, res_key, args)
 
 
 # ---------------------------------------------------------------------------
@@ -421,7 +169,7 @@ TOOL_CATALOG = {
             "parent": {"type": "str", "desc": "Parent project ID"},
             "parentOrder": {"type": "int", "desc": "Order within parent"},
             "isNotebook": {"type": "bool", "desc": "Create as notebook"},
-            "tags": {"type": "list", "desc": "Tag IDs array"},
+            "tags": {"type": "list", "items": {"type": "string"}, "desc": "Tag IDs array"},
             "showInBasket": {"type": "bool", "desc": "Show in basket"},
             "externalId": {"type": "str", "desc": "External ID"},
         },
@@ -439,7 +187,7 @@ TOOL_CATALOG = {
             "parent": {"type": "str", "desc": "Parent project ID"},
             "parentOrder": {"type": "int", "desc": "Order within parent"},
             "isNotebook": {"type": "bool", "desc": "Notebook flag"},
-            "tags": {"type": "list", "desc": "Tag IDs array"},
+            "tags": {"type": "list", "items": {"type": "string"}, "desc": "Tag IDs array"},
             "showInBasket": {"type": "bool", "desc": "Show in basket"},
             "externalId": {"type": "str", "desc": "External ID"},
         },
@@ -448,6 +196,42 @@ TOOL_CATALOG = {
         "desc": "Delete project",
         "params": {
             "id": {"type": "str", "required": True, "desc": "Project ID"},
+        },
+    },
+    "project_describe": {
+        "desc": "Edit local project descriptions in references/projects.json",
+        "params": {
+            "id": {"type": "str", "desc": "Project ID or exact project title for single mode"},
+            "text": {"type": "str", "desc": "Description text; null deletes the description"},
+            "batch": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": {"type": ["string", "null"]},
+                "desc": "Bulk descriptions keyed by project ID; null deletes",
+            },
+            "batch_file": {
+                "type": "str",
+                "desc": "Path to a JSON file containing a batch object",
+            },
+            "force": {
+                "type": "bool",
+                "default": False,
+                "desc": "Overwrite existing descriptions without DESCRIPTION_EXISTS",
+            },
+            "dry_run": {
+                "type": "bool",
+                "default": False,
+                "desc": "Preview counts without writing references/projects.json",
+            },
+            "base_sha256": {
+                "type": "str",
+                "desc": "Expected sha256 of references/projects.json for CAS",
+            },
+            "allow_empty": {
+                "type": "bool",
+                "default": False,
+                "desc": "Allow empty string descriptions",
+            },
         },
     },
 
@@ -526,7 +310,7 @@ TOOL_CATALOG = {
             "start": {"type": "str", "desc": "Start datetime ISO"},
             "useTime": {"type": "bool", "desc": "false=date only, true=real time GMT+3"},
             "deadline": {"type": "str", "desc": "Deadline datetime ISO"},
-            "tags": {"type": "list", "desc": "Tag IDs array"},
+            "tags": {"type": "list", "items": {"type": "string"}, "desc": "Tag IDs array"},
             "complete": {"type": "str", "desc": "Completion datetime ISO"},
             "completeLast": {"type": "str", "desc": "Last completion datetime"},
             "state": {"type": "str", "desc": "Task state"},
@@ -537,7 +321,7 @@ TOOL_CATALOG = {
             "journalDate": {"type": "str", "desc": "Journal date ISO"},
             "isNote": {"type": "bool", "desc": "Note in notebook flag"},
             "notify": {"type": "int", "desc": "Notification flag (0 or 1)"},
-            "notifies": {"type": "list", "desc": "Notification minutes array e.g. [60,15]"},
+            "notifies": {"type": "list", "items": {"type": "integer"}, "desc": "Notification minutes array e.g. [60,15]"},
             "alarmNotify": {"type": "bool", "desc": "Alarm notification"},
             "externalId": {"type": "str", "desc": "External ID"},
         },
@@ -553,7 +337,7 @@ TOOL_CATALOG = {
             "useTime": {"type": "bool", "desc": "false=date only, true=real time GMT+3"},
             "deadline": {"type": "str", "desc": "Deadline datetime ISO"},
             "parent": {"type": "str", "desc": "Task group ID"},
-            "tags": {"type": "list", "desc": "Tag IDs array"},
+            "tags": {"type": "list", "items": {"type": "string"}, "desc": "Tag IDs array"},
             "complete": {"type": "str", "desc": "Completion datetime ISO"},
             "completeLast": {"type": "str", "desc": "Last completion datetime"},
             "state": {"type": "str", "desc": "Task state"},
@@ -564,7 +348,7 @@ TOOL_CATALOG = {
             "journalDate": {"type": "str", "desc": "Journal date ISO"},
             "isNote": {"type": "bool", "desc": "Note in notebook flag"},
             "notify": {"type": "int", "desc": "Notification flag (0 or 1)"},
-            "notifies": {"type": "list", "desc": "Notification minutes array"},
+            "notifies": {"type": "list", "items": {"type": "integer"}, "desc": "Notification minutes array"},
             "alarmNotify": {"type": "bool", "desc": "Alarm notification"},
             "externalId": {"type": "str", "desc": "External ID"},
         },
@@ -595,7 +379,7 @@ TOOL_CATALOG = {
         "desc": "Create note",
         "params": {
             "containerId": {"type": "str", "required": True, "desc": "Container (project/task) ID"},
-            "content": {"type": "list", "required": True, "desc": "Delta array [{insert:...},...] -- last insert must end with newline"},
+            "content": {"type": "list", "items": {"type": "object"}, "required": True, "desc": "Delta array [{insert:...},...] -- last insert must end with newline"},
             "contentType": {"type": "str", "default": "delta", "desc": "Content type (always 'delta')"},
             "externalId": {"type": "str", "desc": "External ID"},
         },
@@ -605,7 +389,7 @@ TOOL_CATALOG = {
         "params": {
             "id": {"type": "str", "required": True, "desc": "Note ID"},
             "containerId": {"type": "str", "desc": "Container ID"},
-            "content": {"type": "list", "desc": "Delta array"},
+            "content": {"type": "list", "items": {"type": "object"}, "desc": "Delta array"},
             "contentType": {"type": "str", "desc": "Content type"},
             "externalId": {"type": "str", "desc": "External ID"},
         },
@@ -934,7 +718,7 @@ TOOL_CATALOG = {
 
     # --- References ---
     "rebuild_references": {
-        "desc": "Regenerate references cache (projects.json, tags.json) from API and merge descriptions from meta files",
+        "desc": "Regenerate references cache from API while preserving project descriptions in projects.json",
         "params": {},
     },
     "generate_meta_template": {
@@ -1057,827 +841,247 @@ for _name in TOOL_CATALOG:
         if _name.endswith(_suffix):
             WRITE_TOOLS.add(_name)
 
+LOCAL_WRITE_TOOLS = {"project_describe"}
 
-# ---------------------------------------------------------------------------
-# References Cache (rebuild_references tool)
-# ---------------------------------------------------------------------------
 
-def _load_indexed_projects():
-    """Load projects.json and build search indexes.
+def _resolve_project_identifier(projects: list, ident: str) -> tuple[str | None, dict | None, list]:
+    by_id = {p.get("id"): p for p in projects if p.get("id")}
+    if ident in by_id:
+        return ident, by_id[ident], []
 
-    Returns dict with:
-      - 'raw': list of all projects
-      - 'by_id': {project_id: project}
-      - 'by_title_lower': {title.lower(): project}
-      - 'by_parent': {parent_id: [child_projects]}
+    matches = [
+        p for p in projects
+        if (p.get("title") or "").casefold() == str(ident).casefold()
+    ]
+    if len(matches) == 1:
+        return matches[0].get("id"), matches[0], []
+    return None, None, matches
 
-    Returns None if file doesn't exist.
-    """
-    projects_file = REFS_DIR / "projects.json"
-    if not projects_file.exists():
-        return None
 
-    with projects_file.open("r", encoding="utf-8") as f:
-        data = json.load(f)
+def _load_batch_file(path_value: str) -> object:
+    path = Path(path_value)
+    if not path.is_absolute():
+        path = ROOT / path
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError, OSError) as exc:
+        raise StructuredError(
+            "BATCH_INVALID",
+            "batch_file is unreadable or invalid JSON",
+            batch_file=str(path),
+            detail=f"{type(exc).__name__}: {exc}",
+        ) from exc
 
+
+def _project_describe_handler(client: SingularityClient, _res_key: str,
+                              args: dict) -> dict:
+    """Edit local project descriptions in references/projects.json."""
+    del client
+    args = dict(args or {})
+    has_batch = "batch" in args and args.get("batch") is not None
+    has_batch_file = bool(args.get("batch_file"))
+    dry_run = bool(args.get("dry_run", False))
+    force = bool(args.get("force", False))
+    allow_empty = bool(args.get("allow_empty", False))
+    base_sha256 = args.get("base_sha256")
+
+    if has_batch and has_batch_file:
+        return _error_response(
+            "BATCH_INVALID",
+            "batch and batch_file are mutually exclusive",
+        )
+
+    projects_path = _projects_path()
+    current_sha = _sha256_file(projects_path) if projects_path.exists() else None
+    if base_sha256 and base_sha256 != current_sha:
+        return _error_response(
+            "CAS_CONFLICT",
+            "references/projects.json sha256 does not match base_sha256",
+            expected=base_sha256,
+            actual=current_sha,
+            file=str(projects_path),
+        )
+
+    data = _load_projects_data()
+    _ensure_description_migration_meta(data)
     projects = data.get("projects", [])
-
-    # Build indexes
-    by_id = {}
-    by_title_lower = {}
-    by_parent = {}
-
-    for p in projects:
-        pid = p["id"]
-        title_lower = p.get("title", "").lower()
-        parent = p.get("parent")
-
-        by_id[pid] = p
-        by_title_lower[title_lower] = p
-
-        if parent:
-            if parent not in by_parent:
-                by_parent[parent] = []
-            by_parent[parent].append(p)
-
-    return {
-        "raw": projects,
-        "by_id": by_id,
-        "by_title_lower": by_title_lower,
-        "by_parent": by_parent,
-        "metadata": {
-            "generated": data.get("generated"),
-            "total": data.get("total", len(projects)),
-            "archived": data.get("archived", 0),
-        }
-    }
-
-
-def _load_indexed_tags():
-    """Load tags.json and build search indexes.
-
-    Returns dict with:
-      - 'raw': list of all tags
-      - 'by_id': {tag_id: tag}
-      - 'by_title_lower': {title.lower(): tag}
-      - 'by_parent': {parent_id: [child_tags]}
-
-    Returns None if file doesn't exist.
-    """
-    tags_file = REFS_DIR / "tags.json"
-    if not tags_file.exists():
-        return None
-
-    with tags_file.open("r", encoding="utf-8") as f:
-        data = json.load(f)
-
-    tags = data.get("tags", [])
-
-    # Build indexes
-    by_id = {}
-    by_title_lower = {}
-    by_parent = {}
-
-    for t in tags:
-        tid = t["id"]
-        title_lower = t.get("title", "").lower()
-        parent = t.get("parent")
-
-        by_id[tid] = t
-        by_title_lower[title_lower] = t
-
-        if parent:
-            if parent not in by_parent:
-                by_parent[parent] = []
-            by_parent[parent].append(t)
-
-    return {
-        "raw": tags,
-        "by_id": by_id,
-        "by_title_lower": by_title_lower,
-        "by_parent": by_parent,
-        "metadata": {
-            "generated": data.get("generated"),
-            "total": data.get("total", len(tags)),
-        }
-    }
-
-
-def _rebuild_references_handler(client: SingularityClient, _res_key: str,
-                                _args: dict) -> dict:
-    """Fetch projects and tags from API, merge meta descriptions, write JSON caches."""
-    REFS_DIR.mkdir(exist_ok=True)
-
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-
-    # --- Fetch all projects ---
-    proj_data = client.get("/v2/project", params={
-        "maxCount": 1000, "includeRemoved": "false",
-    })
-    projects_raw = (
-        proj_data if isinstance(proj_data, list)
-        else proj_data.get("projects", proj_data.get("items", []))
-    )
-    # Filter out removed just in case
-    projects_raw = [p for p in projects_raw if not p.get("removed")]
-
-    # --- Fetch all tags ---
-    tag_data = client.get("/v2/tag", params={
-        "maxCount": 1000, "includeRemoved": "false",
-    })
-    tags_raw = (
-        tag_data if isinstance(tag_data, list)
-        else tag_data.get("tags", tag_data.get("items", []))
-    )
-    tags_raw = [t for t in tags_raw if not t.get("removed")]
-
-    # --- Load meta files ---
-    project_meta_path = REFS_DIR / "project_meta.json"
-    project_meta: dict = {}
-    if project_meta_path.exists():
-        try:
-            project_meta = json.loads(
-                project_meta_path.read_text(encoding="utf-8")
-            )
-        except Exception:
-            pass
-
-    tag_meta_path = REFS_DIR / "tag_meta.json"
-    tag_meta: dict = {}
-    if tag_meta_path.exists():
-        try:
-            tag_meta = json.loads(
-                tag_meta_path.read_text(encoding="utf-8")
-            )
-        except Exception:
-            pass
-
-    # --- Build projects.json ---
-    projects_out = []
-    proj_desc_merged = 0
-    for p in projects_raw:
-        pid = p["id"]
-        meta_entry = project_meta.get(pid, {})
-        # Only take description, ignore _ prefixed fields
-        desc = meta_entry.get("description")
-        if desc:
-            proj_desc_merged += 1
-        projects_out.append({
-            "id": pid,
-            "title": p.get("title", ""),
-            "emoji": p.get("emoji"),
-            "color": p.get("color"),
-            "parent": p.get("parent"),
-            "isNotebook": p.get("isNotebook", False),
-            "archived": p.get("archive", False),
-            "description": desc,
-        })
-
-    # Sort: non-archived first, then alphabetical by title
-    projects_out.sort(
-        key=lambda x: (x["archived"], (x["title"] or "").lower())
-    )
-
-    archived_count = sum(1 for p in projects_out if p["archived"])
-    projects_data = {
-        "generated": datetime.now(timezone.utc).isoformat(),
-        "total": len(projects_out),
-        "archived": archived_count,
-        "with_description": proj_desc_merged,
-        "projects": projects_out,
-    }
-    (REFS_DIR / "projects.json").write_text(
-        json.dumps(projects_data, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
-
-    # --- Build tags.json ---
-    tags_out = []
-    tag_desc_merged = 0
-    for t in tags_raw:
-        tid = t["id"]
-        meta_entry = tag_meta.get(tid, {})
-        # Only take description, ignore _ prefixed fields
-        desc = meta_entry.get("description")
-        if desc:
-            tag_desc_merged += 1
-        tags_out.append({
-            "id": tid,
-            "title": t.get("title", ""),
-            "color": t.get("color"),
-            "hotkey": t.get("hotkey"),
-            "parent": t.get("parent"),
-            "description": desc,
-        })
-
-    tags_out.sort(key=lambda x: (x["title"] or "").lower())
-
-    tags_data = {
-        "generated": datetime.now(timezone.utc).isoformat(),
-        "total": len(tags_out),
-        "with_description": tag_desc_merged,
-        "tags": tags_out,
-    }
-    (REFS_DIR / "tags.json").write_text(
-        json.dumps(tags_data, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
-
-    # --- Build task_groups.json (project_id -> base_task_group_id mapping) ---
-    print(f"[singularity] Fetching task groups for {len(projects_out)} projects...", file=sys.stderr)
-
-    task_groups_mapping = {}
-    errors_count = 0
-
-    for idx, p in enumerate(projects_out, 1):
-        project_id = p["id"]
-
-        # Progress indicator every 10 projects
-        if idx % 10 == 0 or idx == len(projects_out):
-            print(f"[singularity] Progress: {idx}/{len(projects_out)} projects", file=sys.stderr)
-
-        try:
-            # Get task groups for this project
-            tg_data = client.get("/v2/task-group", params={
-                "parent": project_id,
-                "maxCount": 100,
-                "includeRemoved": "false",
-            })
-
-            task_groups = tg_data.get("taskGroups", [])
-
-            if task_groups:
-                # Find base task group (usually first one, or one without parent in task group hierarchy)
-                base_tg = task_groups[0]  # First task group is typically the base
-                task_groups_mapping[project_id] = base_tg["id"]
-        except Exception as e:
-            # Don't fail entire rebuild if one project fails
-            errors_count += 1
-            print(f"[singularity] Warning: Failed to fetch task groups for {project_id}: {e}", file=sys.stderr)
-            continue
-
-    task_groups_data = {
-        "generated": datetime.now(timezone.utc).isoformat(),
-        "total_projects": len(projects_out),
-        "mapped": len(task_groups_mapping),
-        "errors": errors_count,
-        "mappings": task_groups_mapping,
-    }
-
-    (REFS_DIR / "task_groups.json").write_text(
-        json.dumps(task_groups_data, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
-
-    print(f"[singularity] Task groups cache built: {len(task_groups_mapping)} mappings", file=sys.stderr)
-
-    return {
-        "status": "ok",
-        "generated": today,
-        "projects": f"{len(projects_out)} projects ({archived_count} archived, {proj_desc_merged} with description)",
-        "tags": f"{len(tags_out)} tags ({tag_desc_merged} with description)",
-        "task_groups": f"{len(task_groups_mapping)} project→task_group mappings ({errors_count} errors)",
-        "files": [
-            "references/projects.json",
-            "references/tags.json",
-            "references/task_groups.json",
-        ],
-    }
-
-
-def _generate_meta_template_handler(client: SingularityClient, res_key: str, args: dict) -> dict:
-    """Generate meta template file with _title for user-friendly editing."""
-    meta_type = args.get("type")
-    if meta_type not in ("projects", "tags"):
-        raise ValueError("type must be 'projects' or 'tags'")
-
-    overwrite = args.get("overwrite", False)
-
-    # Paths
-    cache_file = REFS_DIR / f"{meta_type}.json"
-    meta_file = REFS_DIR / f"{meta_type[:-1]}_meta.json"  # project_meta.json or tag_meta.json
-
-    # Check if cache exists
-    if not cache_file.exists():
-        raise FileNotFoundError(
-            f"{cache_file} not found. Run rebuild_references first."
-        )
-
-    # Check if meta file exists
-    if meta_file.exists() and not overwrite:
-        raise FileExistsError(
-            f"{meta_file} already exists. Use overwrite=true to replace."
-        )
-
-    # Load cache
-    with cache_file.open("r", encoding="utf-8") as f:
-        cache_data = json.load(f)
-
-    items = cache_data.get(meta_type, [])
-
-    # Load existing meta (if exists) to preserve descriptions
-    existing_meta = {}
-    if meta_file.exists():
-        try:
-            with meta_file.open("r", encoding="utf-8") as f:
-                existing_meta = json.load(f)
-        except Exception:
-            pass
-
-    # Build template
-    template = {}
-    for item in items:
-        item_id = item["id"]
-        existing = existing_meta.get(item_id, {})
-
-        template[item_id] = {
-            "_title": item.get("title", ""),
-            "description": existing.get("description", "")
-        }
-
-    # Write template
-    REFS_DIR.mkdir(exist_ok=True)
-    with meta_file.open("w", encoding="utf-8") as f:
-        json.dump(template, f, indent=2, ensure_ascii=False)
-
-    return {
-        "status": "success",
-        "file": str(meta_file),
-        "items": len(template),
-        "overwritten": meta_file.exists() and overwrite
-    }
-
-
-def _find_project_handler(client: SingularityClient, res_key: str, args: dict) -> dict:
-    """Find project by name using indexed search. Rebuild cache on miss and retry.
-
-    Returns projects with task_group_id field added from task_groups.json cache.
-    """
-    name = args.get("name", "").lower()
-    exact = args.get("exact", False)
-
-    if not name:
-        raise ValueError("name is required")
-
-    def search_project():
-        """Search in indexed cache and enrich with task_group_id."""
-        indexed = _load_indexed_projects()
-        if not indexed:
-            return None
-
-        # Load task_groups mapping
-        task_groups_file = REFS_DIR / "task_groups.json"
-        task_groups_mapping = {}
-        if task_groups_file.exists():
-            try:
-                with task_groups_file.open("r", encoding="utf-8") as f:
-                    tg_data = json.load(f)
-                task_groups_mapping = tg_data.get("mappings", {})
-            except Exception:
-                pass
-
-        matches = []
-
-        if exact:
-            # O(1) exact match using index
-            match = indexed["by_title_lower"].get(name)
-            if match:
-                # Enrich with task_group_id
-                project_id = match["id"]
-                match_copy = match.copy()
-                match_copy["task_group_id"] = task_groups_mapping.get(project_id)
-                matches.append(match_copy)
-        else:
-            # Partial match - still need to iterate, but more efficient
-            for p in indexed["raw"]:
-                title_lower = p.get("title", "").lower()
-                if name in title_lower:
-                    # Enrich with task_group_id
-                    project_id = p["id"]
-                    p_copy = p.copy()
-                    p_copy["task_group_id"] = task_groups_mapping.get(project_id)
-                    matches.append(p_copy)
-
-        return matches
-
-    # First attempt
-    matches = search_project()
-
-    if matches:
-        return {
-            "found": True,
-            "count": len(matches),
-            "projects": matches
-        }
-
-    # Cache miss → rebuild
-    print(f"[singularity] Project '{name}' not found in cache, rebuilding...", file=sys.stderr)
-    _rebuild_references_handler(client, None, {})
-
-    # Second attempt
-    matches = search_project()
-
-    if matches:
-        return {
-            "found": True,
-            "count": len(matches),
-            "projects": matches,
-            "cache_rebuilt": True
-        }
-
-    return {
-        "found": False,
-        "count": 0,
-        "projects": [],
-        "cache_rebuilt": True,
-        "message": f"Project '{name}' not found even after cache rebuild"
-    }
-
-
-def _find_tag_handler(client: SingularityClient, res_key: str, args: dict) -> dict:
-    """Find tag by name using indexed search. Rebuild cache on miss and retry."""
-    name = args.get("name", "").lower()
-    exact = args.get("exact", False)
-
-    if not name:
-        raise ValueError("name is required")
-
-    def search_tag():
-        """Search in indexed cache."""
-        indexed = _load_indexed_tags()
-        if not indexed:
-            return None
-
-        matches = []
-
-        if exact:
-            # O(1) exact match using index
-            match = indexed["by_title_lower"].get(name)
-            if match:
-                matches.append(match)
-        else:
-            # Partial match - still need to iterate, but more efficient
-            for t in indexed["raw"]:
-                title_lower = t.get("title", "").lower()
-                if name in title_lower:
-                    matches.append(t)
-
-        return matches
-
-    # First attempt
-    matches = search_tag()
-
-    if matches:
-        return {
-            "found": True,
-            "count": len(matches),
-            "tags": matches
-        }
-
-    # Cache miss → rebuild
-    print(f"[singularity] Tag '{name}' not found in cache, rebuilding...", file=sys.stderr)
-    _rebuild_references_handler(client, None, {})
-
-    # Second attempt
-    matches = search_tag()
-
-    if matches:
-        return {
-            "found": True,
-            "count": len(matches),
-            "tags": matches,
-            "cache_rebuilt": True
-        }
-
-    return {
-        "found": False,
-        "count": 0,
-        "tags": [],
-        "cache_rebuilt": True,
-        "message": f"Tag '{name}' not found even after cache rebuild"
-    }
-
-
-# Register rebuild_references in dispatch (after function definition)
-def _task_full_handler(client: "SingularityClient", res_key: str, args: dict) -> dict:
-    """Get task with its note (batch: task_get + note_list).
-
-    Accepts task ID (T-xxx) or Singularity URL:
-    - singularityapp://?&page=any&id=T-...
-    - https://web.singularity-app.com/#/?&id=T-...
-    """
-    import re
-    from urllib.parse import urlparse, parse_qs
-
-    task_id_input = args.get("task_id", "").strip()
-
-    # Parse URL if needed
-    task_id = task_id_input
-    if "://" in task_id_input:
-        # URL format: extract id parameter
-        parsed = urlparse(task_id_input)
-
-        if parsed.scheme == "singularityapp":
-            # singularityapp://?&page=any&id=T-xxx
-            qs = parse_qs(parsed.query)
-            if "id" in qs:
-                task_id = qs["id"][0]
-        elif "singularity-app.com" in parsed.netloc:
-            # https://web.singularity-app.com/#/?&id=T-xxx
-            # Fragment contains query string
-            fragment = parsed.fragment
-            if "?" in fragment:
-                qs_part = fragment.split("?", 1)[1]
-                qs = parse_qs(qs_part)
-                if "id" in qs:
-                    task_id = qs["id"][0]
-
-        # Extract T-UUID from id (may have timestamp suffix like -20260222)
-        match = re.search(r'(T-[0-9a-f-]+)', task_id)
-        if match:
-            task_id = match.group(1)
-
-    if not task_id.startswith("T-"):
-        return {"error": f"Invalid task ID: {task_id_input}"}
-
-    # Get task
-    task = client.get(f"/v2/task/{task_id}")
-
-    # Get note if exists
-    note = None
-    note_list = client.get("/v2/note", params={"containerId": task_id, "maxCount": 1})
-    notes = note_list.get("content", [])
-    if notes:
-        note = notes[0]
-
-    return {
-        "task": task,
-        "note": note
-    }
-
-
-def _project_tasks_full_handler(client: "SingularityClient", res_key: str, args: dict) -> dict:
-    """Get all tasks of a project with their notes (batch: task_list + note_list for all tasks)."""
-    project_id = args.get("project_id", "").strip()
-    include_notes = args.get("include_notes", True)
-
-    if not project_id.startswith("P-"):
-        return {"error": f"Invalid project ID: {project_id}"}
-
-    # Get all tasks (API doesn't support project_id filter)
-    # Use task_list tool internally for consistency
-    from copy import copy
-    task_list_args = {"max_count": 1000}
-
-    # Call task_list to get all tasks
-    dispatch_info = TOOL_DISPATCH.get("task_list")
-    if dispatch_info:
-        res_key, handler = dispatch_info
-        tasks_response = handler(client, res_key, task_list_args)
-        all_tasks = tasks_response.get("tasks", [])
+    by_id: dict[str, list[dict]] = {}
+    for project in projects:
+        pid = project.get("id")
+        if pid:
+            by_id.setdefault(pid, []).append(project)
+
+    if has_batch_file:
+        batch = _load_batch_file(args["batch_file"])
+        has_batch = True
+    elif has_batch:
+        batch = args.get("batch")
     else:
-        # Fallback to direct API call
-        tasks_response = client.get("/v2/task", params={"maxCount": 1000})
-        all_tasks = tasks_response.get("content", tasks_response.get("tasks", []))
+        ident = args.get("id")
+        if not ident:
+            return _error_response(
+                "PROJECT_NOT_FOUND",
+                "id is required for single project_describe mode",
+                invalid_ids=[ident],
+                available_projects=[
+                    {"id": p.get("id"), "title": p.get("title", "")}
+                    for p in projects
+                ],
+                available_count=len(projects),
+            )
+        if "text" not in args:
+            return _error_response(
+                "INVALID_DESCRIPTION",
+                "text is required for single project_describe mode",
+                id=ident,
+            )
+        resolved_id, _project, title_matches = _resolve_project_identifier(projects, str(ident))
+        if not resolved_id:
+            return _error_response(
+                "PROJECT_NOT_FOUND",
+                "project was not found by id or unique exact title",
+                invalid_ids=[ident],
+                candidates=[
+                    {"id": p.get("id"), "title": p.get("title", "")}
+                    for p in title_matches
+                ],
+                available_projects=[
+                    {"id": p.get("id"), "title": p.get("title", "")}
+                    for p in projects
+                ],
+                available_count=len(projects),
+            )
+        batch = {resolved_id: args.get("text")}
+        has_batch = True
 
-    # Filter tasks by project_id on client side
-    tasks = [t for t in all_tasks if t.get("projectId") == project_id]
+    if not has_batch or not isinstance(batch, dict):
+        return _error_response(
+            "BATCH_INVALID",
+            "project_describe requires a batch object, batch_file, or id+text",
+        )
 
-    if not include_notes:
+    invalid_ids = [pid for pid in batch if pid not in by_id]
+    if invalid_ids:
+        return _error_response(
+            "BATCH_INVALID",
+            "batch contains unknown project IDs",
+            invalid_ids=invalid_ids,
+            available_projects=[
+                {"id": p.get("id"), "title": p.get("title", "")}
+                for p in projects
+            ],
+            available_count=len(projects),
+        )
+
+    invalid_descriptions = [
+        pid for pid, desc in batch.items()
+        if desc is not None and (not isinstance(desc, str) or (desc == "" and not allow_empty))
+    ]
+    if invalid_descriptions:
+        return _error_response(
+            "INVALID_DESCRIPTION",
+            "description must be a string or null; empty string requires allow_empty=true",
+            invalid_ids=invalid_descriptions,
+        )
+
+    conflicts = [
+        pid for pid, desc in batch.items()
+        if (
+            desc is not None
+            and any(p.get("description") is not None for p in by_id[pid])
+            and any(
+                p.get("description") != desc
+                for p in by_id[pid]
+                if p.get("description") is not None
+            )
+            and not force
+        )
+    ]
+    if conflicts:
+        return _error_response(
+            "DESCRIPTION_EXISTS",
+            "one or more projects already have descriptions; pass force=true to overwrite",
+            conflicting_ids=conflicts,
+        )
+
+    counts = {
+        "added": 0,
+        "updated": 0,
+        "deleted": 0,
+        "skipped": 0,
+    }
+    for pid, desc in batch.items():
+        current = next(
+            (p.get("description") for p in by_id[pid] if p.get("description") is not None),
+            by_id[pid][0].get("description"),
+        )
+        if current == desc:
+            counts["skipped"] += 1
+        elif current is None and desc is not None:
+            counts["added"] += 1
+        elif current is not None and desc is None:
+            counts["deleted"] += 1
+        else:
+            counts["updated"] += 1
+
+    if dry_run:
         return {
-            "project_id": project_id,
-            "total_tasks": len(tasks),
-            "tasks": tasks
+            "status": "ok",
+            "dry_run": True,
+            "would_add": counts["added"],
+            "would_update": counts["updated"],
+            "would_delete": counts["deleted"],
+            "would_skip": counts["skipped"],
+            "with_description_total": _count_project_descriptions(projects),
+            "sha256": current_sha,
         }
 
-    # Get notes for all tasks
-    tasks_with_notes = []
-    for task in tasks:
-        task_id = task["id"]
+    for pid, desc in batch.items():
+        for project in by_id[pid]:
+            project["description"] = desc
 
-        # Get note for this task
-        note = None
-        if include_notes:
-            note_list = client.get("/v2/note", params={"containerId": task_id, "maxCount": 1})
-            notes = note_list.get("content", [])
-            if notes:
-                note = notes[0]
+    archive_info = _complete_description_migration_if_pending(data)
+    _write_projects_data(data)
 
-        tasks_with_notes.append({
-            "task": task,
-            "note": note
-        })
-
-    return {
-        "project_id": project_id,
-        "total_tasks": len(tasks_with_notes),
-        "tasks_with_notes": tasks_with_notes
+    result = {
+        "status": "ok",
+        **counts,
+        "with_description_total": data["with_description"],
+        "sha256": _sha256_file(projects_path),
     }
-
-
-def _inbox_list_handler(client: "SingularityClient", res_key: str, args: dict) -> dict:
-    """Get all tasks in Inbox (tasks without projectId).
-
-    Uses maxCount=1000 to get all inbox tasks in one request.
-    """
-    include_notes = args.get("include_notes", False)
-
-    # Get all tasks with max limit
-    tasks_response = client.get("/v2/task", params={"maxCount": 1000})
-    all_tasks = tasks_response.get("content", tasks_response.get("tasks", []))
-
-    # Filter tasks without projectId (Inbox tasks)
-    inbox_tasks = [t for t in all_tasks if not t.get("projectId")]
-
-    if not include_notes:
-        return {
-            "total": len(inbox_tasks),
-            "tasks": inbox_tasks
+    if archive_info:
+        result["migration"] = {
+            "status": "complete",
+            **archive_info,
         }
+    return result
 
-    # Get notes for all inbox tasks
-    tasks_with_notes = []
-    for task in inbox_tasks:
-        task_id = task["id"]
 
-        # Get note for this task
-        note = None
-        note_list = client.get("/v2/note", params={"containerId": task_id, "maxCount": 1})
-        notes = note_list.get("content", [])
-        if notes:
-            note = notes[0]
-
-        tasks_with_notes.append({
-            "task": task,
-            "note": note
-        })
-
-    return {
-        "total": len(tasks_with_notes),
-        "tasks_with_notes": tasks_with_notes
-    }
 
 
 
 TOOL_DISPATCH["rebuild_references"] = (
     "project", _rebuild_references_handler
 )
+TOOL_DISPATCH["project_describe"] = (None, _project_describe_handler)
 TOOL_DISPATCH["generate_meta_template"] = (None, _generate_meta_template_handler)
 TOOL_DISPATCH["find_project"] = (None, _find_project_handler)
 TOOL_DISPATCH["find_tag"] = (None, _find_tag_handler)
 TOOL_DISPATCH["task_full"] = (None, _task_full_handler)
 TOOL_DISPATCH["project_tasks_full"] = (None, _project_tasks_full_handler)
 TOOL_DISPATCH["inbox_list"] = (None, _inbox_list_handler)
-
-
-def _check_and_refresh_cache(cfg: dict) -> None:
-    """Auto-refresh references cache if missing or expired.
-
-    Refreshes if:
-    - Cache files missing
-    - Cache older than cache_ttl_days (from config)
-    """
-    cache_ttl_days = cfg.get("cache_ttl_days", 30)  # Default: 30 days
-
-    projects_file = REFS_DIR / "projects.json"
-    tags_file = REFS_DIR / "tags.json"
-    task_groups_file = REFS_DIR / "task_groups.json"
-
-    # If any cache missing → rebuild all
-    if not projects_file.exists() or not tags_file.exists() or not task_groups_file.exists():
-        print("[singularity] Cache missing, rebuilding...", file=sys.stderr)
-        _rebuild_references_handler(SingularityClient(cfg["base_url"], cfg["token"]), None, {})
-        return
-
-    # Check age
-    try:
-        with projects_file.open("r", encoding="utf-8") as f:
-            data = json.load(f)
-
-        generated_str = data.get("generated")
-        if not generated_str:
-            # Old format without timestamp → rebuild
-            print("[singularity] Cache has no timestamp, rebuilding...", file=sys.stderr)
-            _rebuild_references_handler(SingularityClient(cfg["base_url"], cfg["token"]), None, {})
-            return
-
-        generated = datetime.fromisoformat(generated_str)
-        # Make aware if naive
-        if generated.tzinfo is None:
-            generated = generated.replace(tzinfo=timezone.utc)
-
-        age_days = (datetime.now(timezone.utc) - generated).days
-
-        if age_days >= cache_ttl_days:
-            print(f"[singularity] Cache expired ({age_days} days old, TTL={cache_ttl_days}), rebuilding...", file=sys.stderr)
-            _rebuild_references_handler(SingularityClient(cfg["base_url"], cfg["token"]), None, {})
-
-    except Exception as e:
-        print(f"[singularity] Error checking cache age: {e}, rebuilding...", file=sys.stderr)
-        _rebuild_references_handler(SingularityClient(cfg["base_url"], cfg["token"]), None, {})
-
-
-# ---------------------------------------------------------------------------
-# Project Cache Management
-# ---------------------------------------------------------------------------
-
-CACHE_MAX_AGE_DAYS = 7
-CACHE_FILE = ROOT / "projects_cache.md"
-
-
-def _refresh_project_cache(cfg: dict = None) -> None:
-    """Fetch all projects and write projects_cache.md + update config.json."""
-    if cfg is None:
-        cfg = load_config()
-
-    print("[singularity] Refreshing project cache...", file=sys.stderr)
-
-    client = SingularityClient(cfg["base_url"], cfg["token"])
-
-    # Fetch all projects (skip removed)
-    data = client.get("/v2/project", params={"maxCount": 1000})
-    projects = data if isinstance(data, list) else data.get("projects", data.get("items", []))
-
-    # Filter removed
-    projects = [p for p in projects if not p.get("removed")]
-
-    # Build id -> project map and parent -> children map
-    by_id = {p["id"]: p for p in projects}
-    children: dict = {}  # parent_id -> [project, ...]
-    roots = []
-
-    for p in projects:
-        parent = p.get("parent")
-        if parent and parent in by_id:
-            children.setdefault(parent, []).append(p)
-        else:
-            roots.append(p)
-
-    # Sort alphabetically by title at each level
-    roots.sort(key=lambda p: (p.get("title") or "").lower())
-    for lst in children.values():
-        lst.sort(key=lambda p: (p.get("title") or "").lower())
-
-    # Build flat indented lines recursively
-    lines = []
-
-    def _walk(project, depth: int) -> None:
-        indent = "  " * depth
-        title = project.get("title") or "(no title)"
-        pid = project["id"]
-        lines.append(f"{indent}- {title}  [{pid}]")
-        for child in children.get(project["id"], []):
-            _walk(child, depth + 1)
-
-    for root in roots:
-        _walk(root, 0)
-
-    # Write cache file (utf-8, no BOM)
-    now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
-    content = (
-        "# Singularity Projects Cache\n"
-        f"<!-- cache_updated: {now_iso} -->\n"
-        "\n"
-        + "\n".join(lines)
-        + "\n"
-    )
-    CACHE_FILE.write_text(content, encoding="utf-8")
-
-    # Update config.json with cache_updated timestamp
-    cfg_path = ROOT / "config.json"
-    cfg["cache_updated"] = now_iso
-    cfg_path.write_text(json.dumps(cfg, indent=2, ensure_ascii=False), encoding="utf-8")
-
-    count = len(projects)
-    print(f"[singularity] Cache updated ({count} projects)", file=sys.stderr)
-
-
-def _maybe_auto_refresh_cache(cfg: dict) -> None:
-    """Auto-refresh cache if missing or older than CACHE_MAX_AGE_DAYS."""
-    if not CACHE_FILE.exists():
-        _refresh_project_cache(cfg)
-        return
-
-    cache_updated_str = cfg.get("cache_updated")
-    if not cache_updated_str:
-        _refresh_project_cache(cfg)
-        return
-
-    try:
-        cache_updated = datetime.fromisoformat(cache_updated_str)
-        # Make aware if naive
-        if cache_updated.tzinfo is None:
-            cache_updated = cache_updated.replace(tzinfo=timezone.utc)
-        age_days = (datetime.now(timezone.utc) - cache_updated).days
-        if age_days >= CACHE_MAX_AGE_DAYS:
-            _refresh_project_cache(cfg)
-    except (ValueError, TypeError):
-        _refresh_project_cache(cfg)
-
-
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
+
+def _doctor_run(timeout: int = 10) -> dict:
+    """T0.13 wrapper — delegates to doctor.doctor_run with SKILL_VERSION injected.
+    Kept as a thin shim so existing argparse handler (--doctor) is unchanged.
+    """
+    return _doctor_run_impl(skill_version=SKILL_VERSION, timeout=timeout)
+
+
+
 
 def main():
     parser = argparse.ArgumentParser(
@@ -1893,20 +1097,187 @@ def main():
         "--list", action="store_true", help="List all available tools"
     )
     parser.add_argument(
-        "--refresh-cache", action="store_true",
-        help="Refresh projects_cache.md from API and update config.json cache_updated",
+        "--doctor", action="store_true",
+        help="Run read-only self-check (no side effects)",
+    )
+    parser.add_argument(
+        "--verify-cache", action="store_true",
+        help="Verify references/*.json caches: schema_version, complete=True, no legacy",
+    )
+    parser.add_argument(
+        "--verify-metadata", action="store_true",
+        help="Verify tools.json matches runtime TOOL_CATALOG (no drift)",
+    )
+    parser.add_argument(
+        "--verify-api", action="store_true",
+        help="Read-only API smoke check — endpoints reachable, schemas match observed shapes",
     )
 
     cli_args = parser.parse_args()
 
-    # -- --refresh-cache ----------------------------------------------------
-    if cli_args.refresh_cache:
+    # -- --verify-api (T7.1) — read-only live API smoke check ---------------
+    if cli_args.verify_api:
+        result: dict = {
+            "status": "ok",
+            "skill_version": SKILL_VERSION,
+            "checks": [],
+        }
+        any_fail = False
         try:
-            _refresh_project_cache()
-        except Exception as exc:
-            print(f"Error: {exc}", file=sys.stderr)
+            cfg = load_config()
+        except FileNotFoundError as exc:
+            print(json.dumps({
+                "status": "fail",
+                "skill_version": SKILL_VERSION,
+                "detail": str(exc),
+            }, indent=2, ensure_ascii=False))
+            sys.exit(2)
+
+        client = SingularityClient(cfg["base_url"], cfg["token"])
+
+        # Probe each canonical v2 endpoint with maxCount=1 (minimum impact)
+        endpoints_to_probe = [
+            ("/v2/api-json", "openapi schema"),
+            ("/v2/project", "list projects"),
+            ("/v2/task", "list tasks"),
+            ("/v2/tag", "list tags"),
+            ("/v2/note", "list notes (per Decision A)"),
+            ("/v2/task-group", "list task groups"),
+        ]
+        for path, desc in endpoints_to_probe:
+            check: dict = {"endpoint": path, "purpose": desc}
+            try:
+                if path == "/v2/api-json":
+                    body = client.get(path)
+                    ok = isinstance(body, dict) and (
+                        "openapi" in body or "swagger" in body
+                    )
+                    check["status"] = "ok" if ok else "fail"
+                    check["detail"] = (
+                        f"OpenAPI {body.get('openapi', body.get('swagger', '?'))}"
+                        if ok else "did not return OpenAPI document"
+                    )
+                elif path == "/v2/note":
+                    # T0.3 capability check — wrapper key 'notes' (Decision A)
+                    body = client.get(path, params={"maxCount": 1})
+                    ok = isinstance(body, dict) and "notes" in body \
+                         and isinstance(body["notes"], list)
+                    check["status"] = "ok" if ok else "fail"
+                    check["detail"] = (
+                        f"wrapper 'notes' present, {len(body['notes'])} sample"
+                        if ok else f"unexpected shape: {list(body.keys()) if isinstance(body, dict) else type(body).__name__}"
+                    )
+                else:
+                    body = client.get(path, params={"maxCount": 1})
+                    check["status"] = "ok" if isinstance(body, (dict, list)) else "fail"
+                    check["detail"] = (
+                        f"reachable, returned {type(body).__name__}"
+                        if check["status"] == "ok"
+                        else f"unexpected response type {type(body).__name__}"
+                    )
+            except Exception as exc:  # noqa: BLE001
+                check["status"] = "fail"
+                check["detail"] = f"{type(exc).__name__}: {str(exc)[:200]}"
+            if check["status"] == "fail":
+                any_fail = True
+            result["checks"].append(check)
+
+        if any_fail:
+            result["status"] = "fail"
+        result["summary"] = (
+            f"{sum(1 for c in result['checks'] if c['status']=='ok')}/"
+            f"{len(result['checks'])} endpoints healthy"
+        )
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        sys.exit(0 if result["status"] == "ok" else 1)
+
+    # -- --verify-metadata (T4.7) — read-only check on tools.json drift -----
+    if cli_args.verify_metadata:
+        import subprocess
+        try:
+            result = subprocess.run(
+                [sys.executable, str(ROOT / "scripts" / "regen_metadata.py"),
+                 "--check"],
+                cwd=str(ROOT),
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+            )
+        except Exception as exc:  # noqa: BLE001
+            print(json.dumps({
+                "status": "fail",
+                "skill_version": SKILL_VERSION,
+                "detail": f"could not run regen_metadata.py --check: "
+                         f"{type(exc).__name__}: {exc}",
+            }, indent=2, ensure_ascii=False))
             sys.exit(1)
-        return
+        in_sync = (result.returncode == 0)
+        out: dict = {
+            "status": "ok" if in_sync else "fail",
+            "skill_version": SKILL_VERSION,
+            "stdout": result.stdout.strip(),
+            "stderr": result.stderr.strip(),
+        }
+        print(json.dumps(out, indent=2, ensure_ascii=False))
+        sys.exit(0 if in_sync else 1)
+
+    # -- --verify-cache (T3.14) — read-only check on cache integrity ---------
+    if cli_args.verify_cache:
+        result = {"status": "ok", "skill_version": SKILL_VERSION, "checks": []}
+        cache_files = ("projects.json", "tags.json", "task_groups.json")
+        any_fail = False
+        for fname in cache_files:
+            fpath = REFS_DIR / fname
+            check: dict = {"file": fname}
+            if not fpath.exists():
+                check["status"] = "fail"
+                check["detail"] = "missing"
+                any_fail = True
+            else:
+                info = read_cache(fpath)
+                if info is None:
+                    check["status"] = "fail"
+                    check["detail"] = "unreadable or invalid JSON"
+                    any_fail = True
+                elif info["is_legacy"]:
+                    check["status"] = "fail"
+                    check["detail"] = "legacy format (no _meta) — run rebuild_references"
+                    any_fail = True
+                else:
+                    meta = info["meta"]
+                    if not meta.get("complete"):
+                        check["status"] = "fail"
+                        check["detail"] = f"_meta.complete=False ({meta.get('total_items')} items, partial fetch)"
+                        any_fail = True
+                    else:
+                        check["status"] = "ok"
+                        check["detail"] = (
+                            f"schema_v{meta.get('schema_version')}, "
+                            f"{meta.get('total_items')} items, "
+                            f"generated_at={meta.get('generated_at')}"
+                        )
+            result["checks"].append(check)
+        if any_fail:
+            result["status"] = "fail"
+        result["summary"] = (
+            f"{sum(1 for c in result['checks'] if c['status']=='ok')}/"
+            f"{len(result['checks'])} caches healthy"
+        )
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        sys.exit(0 if result["status"] == "ok" else 1)
+
+    # -- --doctor (must run early, before any auto-refresh side effects) ----
+    if cli_args.doctor:
+        result = _doctor_run()
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        # Exit code: 0 ok, 1 any check failed, 2 config missing/invalid
+        if result["status"] == "ok":
+            sys.exit(0)
+        if any(c["name"] == "config_exists" and c["status"] == "fail"
+               for c in result["checks"]):
+            sys.exit(2)
+        sys.exit(1)
 
     # -- --list -------------------------------------------------------------
     if cli_args.list:
@@ -1924,18 +1295,50 @@ def main():
             print(f"Tool not found: {name}", file=sys.stderr)
             sys.exit(1)
         meta = TOOL_CATALOG[name]
+        # T4.3 — translate Python type names to JSON Schema draft-07 type names.
+        # Closes Drift 4 (known-drifts.md). Map: int→integer, str→string,
+        # float→number, bool→boolean, list→array (with items), object (with properties).
+        TYPE_MAP = {
+            "int": "integer",
+            "str": "string",
+            "float": "number",
+            "bool": "boolean",
+            "list": "array",
+            "object": "object",
+            # passthrough for already-valid names
+            "integer": "integer", "string": "string", "number": "number",
+            "boolean": "boolean", "array": "array",
+        }
+
+        def _build_param_schema(v: dict) -> dict:
+            t = TYPE_MAP.get(v.get("type", "string"), "string")
+            ps: dict = {
+                "type": t,
+                "description": v.get("desc", ""),
+            }
+            # JSON Schema draft-07 requires `items` for arrays and `properties`
+            # for objects. Defensive defaults — concrete schemas can be
+            # overridden in T4.1 catalog.py migration.
+            if t == "array":
+                ps["items"] = v.get("items", {"type": "string"})
+            if t == "object":
+                ps["properties"] = v.get("properties", {})
+                if "additionalProperties" in v:
+                    ps["additionalProperties"] = v["additionalProperties"]
+            if "default" in v:
+                ps["default"] = v["default"]
+            if "enum" in v:
+                ps["enum"] = v["enum"]
+            return ps
+
         schema = {
             "name": name,
             "description": meta["desc"],
             "inputSchema": {
+                "$schema": "http://json-schema.org/draft-07/schema#",
                 "type": "object",
                 "properties": {
-                    k: {
-                        "type": v["type"],
-                        "description": v.get("desc", ""),
-                        **({"default": v["default"]}
-                           if "default" in v else {}),
-                    }
+                    k: _build_param_schema(v)
                     for k, v in meta["params"].items()
                 },
                 "required": [
@@ -1970,22 +1373,18 @@ def main():
         try:
             cfg = load_config()
 
-            # Auto-refresh cache if missing or stale (silent, stderr only)
-            try:
-                _maybe_auto_refresh_cache(cfg)
-                # Reload config in case cache_updated was written
-                cfg = load_config()
-            except Exception:
-                pass  # Never block tool execution due to cache errors
+            migration_error = _check_description_migration(tool_name)
+            if migration_error:
+                print(json.dumps(migration_error, indent=2, ensure_ascii=False))
+                return
 
-            # Auto-refresh references cache if needed
-            try:
-                _check_and_refresh_cache(cfg)
-                cfg = load_config()  # Reload in case updated
-            except Exception:
-                pass  # Never block tool execution
+            _check_and_refresh_cache(cfg)
 
-            if cfg.get("read_only") and tool_name in WRITE_TOOLS:
+            if (
+                cfg.get("read_only")
+                and tool_name in WRITE_TOOLS
+                and tool_name not in LOCAL_WRITE_TOOLS
+            ):
                 print(
                     f"Error: tool '{tool_name}' is a write operation, "
                     f"but config.json has read_only=true",
@@ -2000,6 +1399,8 @@ def main():
             res_key, handler = TOOL_DISPATCH[tool_name]
             result = handler(client, res_key, arguments)
             print(json.dumps(result, indent=2, ensure_ascii=False))
+        except StructuredError as exc:
+            print(json.dumps(exc.payload, indent=2, ensure_ascii=False))
         except Exception as exc:
             print(f"Error: {exc}", file=sys.stderr)
             sys.exit(1)

@@ -1,0 +1,4 @@
+# Test/dev dependencies (NOT runtime — runtime stays stdlib-only)
+# See decisions.md for rationale.
+
+jsonschema>=4.0.0,<5.0.0   # JSON Schema draft-07 validation in tests/test_schema.py

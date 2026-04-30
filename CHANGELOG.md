@@ -1,5 +1,93 @@
 # Changelog
 
+## [1.5.0] - 2026-04-28
+
+- Removed markdown project-cache runtime paths: no `--refresh-cache`, no auto-generation of `projects_cache.md`; project lookup now uses `references/projects.json` only.
+- Added `project_describe` for local project descriptions with single/batch modes, dry-run, CAS via `base_sha256`, atomic batch validation, and structured error responses.
+- Added description migration state in `references/projects.json` and idempotent archive of `projects_cache.md` after successful migration.
+- Updated `rebuild_references` to preserve existing JSON descriptions and use `project_meta.json` only as a one-time fallback for brand new project IDs.
+- Fixed `cache_ttl_days: null` handling and surfaced corrupt JSON caches as structured `CACHE_CORRUPT` errors.
+- Regenerated `tools.json`, `SKILL.md` tool lists, and describe snapshots for 64 runtime tools.
+
+### Stage 2 — module split
+
+- Created `crud.py` for generated CRUD handlers and `time_stat_bulk_delete`.
+- Created `derived.py` for derived lookup, full-task, project-task, and inbox handlers.
+- Extended `cache.py` with `rebuild_references`, cache refresh, description migration/archive flow, and SHA-256/CAS helpers.
+- Kept `main()` in `cli.py`; extracting `main.py` would currently require importing `TOOL_CATALOG` and `TOOL_DISPATCH` back from `cli.py`, creating a circular import.
+
+## [1.4.2] - 2026-04-28
+
+- Fix array parameter item types in generated JSON schemas (`note_create`/`note_update` content as objects, `task.notifies` as integers).
+- Fixed `rebuild_references` completeness metadata: projects, tags, and task-group caches now all write `_meta.complete=false` whenever any paginated fetch returns partial data or task-group fetch errors occur.
+- Fixed `find_project` and `find_tag` reads from incomplete caches: partial data is still served, but responses now include `degraded=true` and `reason="cache incomplete"`.
+
+## [2026-04-26] — v1.4.0: Spec-driven stabilization (Iter 0–4 + 7 + 8 partial)
+
+Реализация плана из `singularity-skill-implementation-spec-2026-04-26.md` (после Codex-ревью). 5 итераций закрыты в течение одного дня, ~60 атомарных задач из 96.
+
+### Iter 0 — Baseline & infrastructure
+- `references/contract/` — 7 артефактов: `observed-api-shapes.json` (redacted), `notes-decision.md` (Decision A), `decisions.md`, `secrets-policy.md`, `cli-contract.md`, `contract-baseline.md`, `known-drifts.md`.
+- `tests/` — runner skeleton, parity baseline (`test_cli_parity.py` 4 tests).
+- Новая команда `--doctor` — 8 read-only sanity checks, zero side effects.
+
+### Iter 1 — Note correctness hotfix (1.0.0 → 1.1.0)
+- **CRITICAL fix**: `note_list.get("content")` → `note_list.get("notes")` в 3 derived handlers. Заметки теперь реально извлекаются (раньше всегда `null`).
+- Новый модуль `note_resolver.py` (Decision A, capability check).
+- URL injection fix в `_task_full_handler`: `quote(task_id, safe='')`.
+- Derived tools возвращают additive metadata: `status`, `partial`, `note_status`, `warnings`, `raw`.
+- 12 unit tests для note_resolver.
+
+### Iter 2 — Pagination & rate limiting (1.1.0 → 1.2.0)
+- Новый модуль `pagination.py` — `iterate_pages()` с offset+maxCount, max_pages truncation, wrapper key autodetect, `throttle_ms`, hard_page_cap=10000.
+- 6 hardcoded `maxCount=1000` сайтов заменены на paginator.
+- `project_tasks_full` теперь использует **server-side `projectId` filter** (раньше client-side scan).
+- `inbox_list` paginated full scan с `page_limit=10` (10k items max).
+- task_groups rebuild сортирует по `parentOrder` (детерминированный base).
+- 15 pagination tests.
+
+### Iter 3 — Cache atomicity & secrets safety (1.2.0)
+- Новый модуль `cache.py` — `atomic_write_text/json`, `CacheMeta` (schema_version=1), `wrap_cache`, `read_cache`, `migrate_legacy_cache`, `parse_html_timestamp_comment`.
+- Все 5 cache-write сайтов через atomic temp+os.replace.
+- **SECURITY: T3.9** — cache layer больше **не пишет config.json** (race condition с токеном закрыта). 4 теста-guard.
+- TOCTOU fix в `generate_meta_template` через `os.O_EXCL`.
+- Новая команда `--verify-cache` — детектит legacy/incomplete/missing.
+
+### Iter 4 — Metadata & schema (1.2.0 → 1.4.0)
+- **`--describe` валидна как JSON Schema draft-07** для всех 63 tools (`int→integer`, `str→string`, `list→array+items`, `object→object+properties`, `$schema` reference).
+- `scripts/regen_metadata.py` — single source of truth = runtime `TOOL_CATALOG`. tools.json регенерируется (60 → 63 entries, derived включены).
+- Новая команда `--verify-metadata` — exit 1 на drift.
+- 9 schema tests (jsonschema.Draft7Validator на 63 tools + tools.json sync).
+
+### Iter 7 — Final hardening (partial)
+- Новая команда `--verify-api` — read-only live smoke 6 endpoints.
+- **SECURITY**: token redaction в error bodies (truncate 500 + regex `Bearer\s+\S+ → ***`).
+- "Known limitations" секция в SKILL.md.
+- 4 silent `except Exception: pass` site закрыты с stderr-логированием.
+
+### Iter 8 — Backlog (partial)
+- T8.1: `_request` retry-loop guard против silent None return на `max_retries=0`.
+- T8.2: `_load_indexed_projects` defensive — пропускает entries без `id` со stderr-warning.
+- T8.5: task_groups сортировка по `parentOrder` (детерминированный base task group).
+
+### Tests
+- **66 tests** in 4 suites: parity (4) + note_resolver (12) + config_safety (4) + pagination (15) + cache (22) + schema (9). All passing.
+
+### Cross-review
+- **Code review (Opus)**: APPROVED WITH NITS (0 BLOCKER, 0 MAJOR, 6 MINOR).
+- **Security review (Opus)**: PASS WITH NOTES (0 CRITICAL, 0 HIGH, 1 MEDIUM closed, 3 LOW).
+- 4 Codex agents участвовали в работе (docs, tests, regen).
+
+### Known drifts (deferred)
+- **Drift 7**: `projects_cache.md` + `references/projects.json` сосуществуют (разные TTL). Унификация — следующая итерация.
+- **T3.13**: legacy cache auto-migration в cli.py wiring (helper готов).
+- **Iter 6 (modular refactor)**: `cli.py` (~2400 LOC) пока монолит; `errors.py` + `config.py` извлечены, остальные модули — следующая итерация под защитой parity tests.
+
+### Tool counter
+60 → 63 (derived: `task_full`, `project_tasks_full`, `inbox_list` теперь в tools.json).
+
+---
+
 ## [2026-02-22] — Batch tools for task + note retrieval
 
 ### Added - Batch operations

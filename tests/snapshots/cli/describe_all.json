@@ -1,0 +1,1878 @@
+{
+  "checklist_create": {
+    "description": "Create checklist item",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "crypted": {
+          "description": "Encrypted flag",
+          "type": "boolean"
+        },
+        "done": {
+          "description": "Completion state",
+          "type": "boolean"
+        },
+        "parent": {
+          "description": "Parent task ID",
+          "type": "string"
+        },
+        "parentOrder": {
+          "description": "Order within parent",
+          "type": "integer"
+        },
+        "title": {
+          "description": "Item title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "parent",
+        "title"
+      ],
+      "type": "object"
+    },
+    "name": "checklist_create"
+  },
+  "checklist_delete": {
+    "description": "Delete checklist item",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "id": {
+          "description": "Checklist item ID",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "name": "checklist_delete"
+  },
+  "checklist_get": {
+    "description": "Get checklist item by ID",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "id": {
+          "description": "Checklist item ID",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "name": "checklist_get"
+  },
+  "checklist_list": {
+    "description": "List checklist items",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "include_removed": {
+          "description": "Include removed",
+          "type": "boolean"
+        },
+        "max_count": {
+          "default": 100,
+          "description": "Max results",
+          "type": "integer"
+        },
+        "offset": {
+          "description": "Pagination offset",
+          "type": "integer"
+        },
+        "parent": {
+          "description": "Parent task ID",
+          "type": "string"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "name": "checklist_list"
+  },
+  "checklist_update": {
+    "description": "Update checklist item",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "crypted": {
+          "description": "Encrypted flag",
+          "type": "boolean"
+        },
+        "done": {
+          "description": "Completion state",
+          "type": "boolean"
+        },
+        "id": {
+          "description": "Checklist item ID",
+          "type": "string"
+        },
+        "parent": {
+          "description": "Parent task ID",
+          "type": "string"
+        },
+        "parentOrder": {
+          "description": "Order within parent",
+          "type": "integer"
+        },
+        "title": {
+          "description": "Item title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "name": "checklist_update"
+  },
+  "find_project": {
+    "description": "Find project by name with auto-rebuild on cache miss",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "exact": {
+          "description": "Exact match only (default: false, allows partial match)",
+          "type": "boolean"
+        },
+        "name": {
+          "description": "Project name or partial name (case-insensitive search)",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
+    "name": "find_project"
+  },
+  "find_tag": {
+    "description": "Find tag by name with auto-rebuild on cache miss",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "exact": {
+          "description": "Exact match only (default: false, allows partial match)",
+          "type": "boolean"
+        },
+        "name": {
+          "description": "Tag name or partial name (case-insensitive search)",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
+    "name": "find_tag"
+  },
+  "generate_meta_template": {
+    "description": "Generate meta template file with _title fields for easy editing",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "overwrite": {
+          "description": "Overwrite existing file (default: false)",
+          "type": "boolean"
+        },
+        "type": {
+          "description": "Type: 'projects' or 'tags'",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "type": "object"
+    },
+    "name": "generate_meta_template"
+  },
+  "habit_create": {
+    "description": "Create habit",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "color": {
+          "description": "Color enum: red|pink|purple|deepPurple|indigo|lightBlue|cyan|teal|green|lightGreen|lime|yellow|amber|orange|deepOrange|brown|grey|blueGrey",
+          "type": "string"
+        },
+        "description": {
+          "description": "Habit description",
+          "type": "string"
+        },
+        "externalId": {
+          "description": "External ID",
+          "type": "string"
+        },
+        "order": {
+          "description": "Display order",
+          "type": "integer"
+        },
+        "status": {
+          "description": "0=active, 1=paused, 2=completed, 3=archived",
+          "type": "integer"
+        },
+        "title": {
+          "description": "Habit title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "title"
+      ],
+      "type": "object"
+    },
+    "name": "habit_create"
+  },
+  "habit_delete": {
+    "description": "Delete habit",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "id": {
+          "description": "Habit ID",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "name": "habit_delete"
+  },
+  "habit_get": {
+    "description": "Get habit by ID",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "id": {
+          "description": "Habit ID",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "name": "habit_get"
+  },
+  "habit_list": {
+    "description": "List habits",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "max_count": {
+          "default": 100,
+          "description": "Max results",
+          "type": "integer"
+        },
+        "offset": {
+          "description": "Pagination offset",
+          "type": "integer"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "name": "habit_list"
+  },
+  "habit_progress_create": {
+    "description": "Create habit progress entry",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "date": {
+          "description": "Date ISO",
+          "type": "string"
+        },
+        "externalId": {
+          "description": "External ID",
+          "type": "string"
+        },
+        "habit": {
+          "description": "Habit ID",
+          "type": "string"
+        },
+        "progress": {
+          "description": "Progress value (number)",
+          "type": "number"
+        }
+      },
+      "required": [
+        "habit",
+        "date",
+        "progress"
+      ],
+      "type": "object"
+    },
+    "name": "habit_progress_create"
+  },
+  "habit_progress_delete": {
+    "description": "Delete habit progress entry",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "id": {
+          "description": "Habit progress ID",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "name": "habit_progress_delete"
+  },
+  "habit_progress_get": {
+    "description": "Get habit progress entry by ID",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "id": {
+          "description": "Habit progress ID",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "name": "habit_progress_get"
+  },
+  "habit_progress_list": {
+    "description": "List habit progress entries",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "end_date": {
+          "description": "End date ISO",
+          "type": "string"
+        },
+        "habit": {
+          "description": "Habit ID",
+          "type": "string"
+        },
+        "max_count": {
+          "default": 100,
+          "description": "Max results",
+          "type": "integer"
+        },
+        "offset": {
+          "description": "Pagination offset",
+          "type": "integer"
+        },
+        "start_date": {
+          "description": "Start date ISO",
+          "type": "string"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "name": "habit_progress_list"
+  },
+  "habit_progress_update": {
+    "description": "Update habit progress entry",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "date": {
+          "description": "Date ISO",
+          "type": "string"
+        },
+        "externalId": {
+          "description": "External ID",
+          "type": "string"
+        },
+        "habit": {
+          "description": "Habit ID",
+          "type": "string"
+        },
+        "id": {
+          "description": "Habit progress ID",
+          "type": "string"
+        },
+        "progress": {
+          "description": "Progress value",
+          "type": "number"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "name": "habit_progress_update"
+  },
+  "habit_update": {
+    "description": "Update habit",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "color": {
+          "description": "Color enum",
+          "type": "string"
+        },
+        "description": {
+          "description": "Habit description",
+          "type": "string"
+        },
+        "externalId": {
+          "description": "External ID",
+          "type": "string"
+        },
+        "id": {
+          "description": "Habit ID",
+          "type": "string"
+        },
+        "order": {
+          "description": "Display order",
+          "type": "integer"
+        },
+        "status": {
+          "description": "0=active, 1=paused, 2=completed, 3=archived",
+          "type": "integer"
+        },
+        "title": {
+          "description": "Habit title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "name": "habit_update"
+  },
+  "inbox_list": {
+    "description": "Get all tasks in Inbox (tasks without projectId). Returns up to 1000 tasks.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "include_notes": {
+          "description": "Include task notes (default: false)",
+          "type": "boolean"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "name": "inbox_list"
+  },
+  "kanban_status_create": {
+    "description": "Create kanban status",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "externalId": {
+          "description": "External ID",
+          "type": "string"
+        },
+        "kanbanOrder": {
+          "description": "Order position",
+          "type": "integer"
+        },
+        "name": {
+          "description": "Status name",
+          "type": "string"
+        },
+        "numberOfColumns": {
+          "description": "Number of columns",
+          "type": "integer"
+        },
+        "projectId": {
+          "description": "Project ID",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "projectId"
+      ],
+      "type": "object"
+    },
+    "name": "kanban_status_create"
+  },
+  "kanban_status_delete": {
+    "description": "Delete kanban status",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "id": {
+          "description": "Kanban status ID",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "name": "kanban_status_delete"
+  },
+  "kanban_status_get": {
+    "description": "Get kanban status by ID",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "id": {
+          "description": "Kanban status ID",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "name": "kanban_status_get"
+  },
+  "kanban_status_list": {
+    "description": "List kanban statuses",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "include_removed": {
+          "description": "Include removed",
+          "type": "boolean"
+        },
+        "max_count": {
+          "default": 100,
+          "description": "Max results",
+          "type": "integer"
+        },
+        "offset": {
+          "description": "Pagination offset",
+          "type": "integer"
+        },
+        "project_id": {
+          "description": "Filter by project ID",
+          "type": "string"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "name": "kanban_status_list"
+  },
+  "kanban_status_update": {
+    "description": "Update kanban status",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "externalId": {
+          "description": "External ID",
+          "type": "string"
+        },
+        "id": {
+          "description": "Kanban status ID",
+          "type": "string"
+        },
+        "kanbanOrder": {
+          "description": "Order position",
+          "type": "integer"
+        },
+        "name": {
+          "description": "Status name",
+          "type": "string"
+        },
+        "numberOfColumns": {
+          "description": "Number of columns",
+          "type": "integer"
+        },
+        "projectId": {
+          "description": "Project ID",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "name": "kanban_status_update"
+  },
+  "kanban_task_status_create": {
+    "description": "Create kanban task status",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "externalId": {
+          "description": "External ID",
+          "type": "string"
+        },
+        "kanbanOrder": {
+          "description": "Order position",
+          "type": "integer"
+        },
+        "statusId": {
+          "description": "Kanban status ID",
+          "type": "string"
+        },
+        "taskId": {
+          "description": "Task ID",
+          "type": "string"
+        }
+      },
+      "required": [
+        "taskId",
+        "statusId"
+      ],
+      "type": "object"
+    },
+    "name": "kanban_task_status_create"
+  },
+  "kanban_task_status_delete": {
+    "description": "Delete kanban task status",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "id": {
+          "description": "Kanban task status ID",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "name": "kanban_task_status_delete"
+  },
+  "kanban_task_status_get": {
+    "description": "Get kanban task status by ID",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "id": {
+          "description": "Kanban task status ID",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "name": "kanban_task_status_get"
+  },
+  "kanban_task_status_list": {
+    "description": "List kanban task statuses",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "include_removed": {
+          "description": "Include removed",
+          "type": "boolean"
+        },
+        "max_count": {
+          "default": 100,
+          "description": "Max results",
+          "type": "integer"
+        },
+        "offset": {
+          "description": "Pagination offset",
+          "type": "integer"
+        },
+        "status_id": {
+          "description": "Filter by status ID",
+          "type": "string"
+        },
+        "task_id": {
+          "description": "Filter by task ID",
+          "type": "string"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "name": "kanban_task_status_list"
+  },
+  "kanban_task_status_update": {
+    "description": "Update kanban task status",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "externalId": {
+          "description": "External ID",
+          "type": "string"
+        },
+        "id": {
+          "description": "Kanban task status ID",
+          "type": "string"
+        },
+        "kanbanOrder": {
+          "description": "Order position",
+          "type": "integer"
+        },
+        "statusId": {
+          "description": "Kanban status ID",
+          "type": "string"
+        },
+        "taskId": {
+          "description": "Task ID",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "name": "kanban_task_status_update"
+  },
+  "note_create": {
+    "description": "Create note",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "containerId": {
+          "description": "Container (project/task) ID",
+          "type": "string"
+        },
+        "content": {
+          "description": "Delta array [{insert:...},...] -- last insert must end with newline",
+          "items": {
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "contentType": {
+          "default": "delta",
+          "description": "Content type (always 'delta')",
+          "type": "string"
+        },
+        "externalId": {
+          "description": "External ID",
+          "type": "string"
+        }
+      },
+      "required": [
+        "containerId",
+        "content"
+      ],
+      "type": "object"
+    },
+    "name": "note_create"
+  },
+  "note_delete": {
+    "description": "Delete note",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "id": {
+          "description": "Note ID",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "name": "note_delete"
+  },
+  "note_get": {
+    "description": "Get note by ID",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "id": {
+          "description": "Note ID",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "name": "note_get"
+  },
+  "note_list": {
+    "description": "List notes",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "container_id": {
+          "description": "Container (project/task) ID",
+          "type": "string"
+        },
+        "max_count": {
+          "default": 100,
+          "description": "Max results",
+          "type": "integer"
+        },
+        "offset": {
+          "description": "Pagination offset",
+          "type": "integer"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "name": "note_list"
+  },
+  "note_update": {
+    "description": "Update note",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "containerId": {
+          "description": "Container ID",
+          "type": "string"
+        },
+        "content": {
+          "description": "Delta array",
+          "items": {
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "contentType": {
+          "description": "Content type",
+          "type": "string"
+        },
+        "externalId": {
+          "description": "External ID",
+          "type": "string"
+        },
+        "id": {
+          "description": "Note ID",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "name": "note_update"
+  },
+  "project_create": {
+    "description": "Create project",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "color": {
+          "description": "Color value",
+          "type": "string"
+        },
+        "emoji": {
+          "description": "Emoji hex code (e.g. 1f49e)",
+          "type": "string"
+        },
+        "end": {
+          "description": "End date ISO",
+          "type": "string"
+        },
+        "externalId": {
+          "description": "External ID",
+          "type": "string"
+        },
+        "isNotebook": {
+          "description": "Create as notebook",
+          "type": "boolean"
+        },
+        "note": {
+          "description": "Project description",
+          "type": "string"
+        },
+        "parent": {
+          "description": "Parent project ID",
+          "type": "string"
+        },
+        "parentOrder": {
+          "description": "Order within parent",
+          "type": "integer"
+        },
+        "showInBasket": {
+          "description": "Show in basket",
+          "type": "boolean"
+        },
+        "start": {
+          "description": "Start date ISO",
+          "type": "string"
+        },
+        "tags": {
+          "description": "Tag IDs array",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "title": {
+          "description": "Project title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "title"
+      ],
+      "type": "object"
+    },
+    "name": "project_create"
+  },
+  "project_delete": {
+    "description": "Delete project",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "id": {
+          "description": "Project ID",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "name": "project_delete"
+  },
+  "project_describe": {
+    "description": "Edit local project descriptions in references/projects.json",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "allow_empty": {
+          "default": false,
+          "description": "Allow empty string descriptions",
+          "type": "boolean"
+        },
+        "base_sha256": {
+          "description": "Expected sha256 of references/projects.json for CAS",
+          "type": "string"
+        },
+        "batch": {
+          "additionalProperties": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "description": "Bulk descriptions keyed by project ID; null deletes",
+          "properties": {},
+          "type": "object"
+        },
+        "batch_file": {
+          "description": "Path to a JSON file containing a batch object",
+          "type": "string"
+        },
+        "dry_run": {
+          "default": false,
+          "description": "Preview counts without writing references/projects.json",
+          "type": "boolean"
+        },
+        "force": {
+          "default": false,
+          "description": "Overwrite existing descriptions without DESCRIPTION_EXISTS",
+          "type": "boolean"
+        },
+        "id": {
+          "description": "Project ID or exact project title for single mode",
+          "type": "string"
+        },
+        "text": {
+          "description": "Description text; null deletes the description",
+          "type": "string"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "name": "project_describe"
+  },
+  "project_get": {
+    "description": "Get project by ID",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "id": {
+          "description": "Project ID",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "name": "project_get"
+  },
+  "project_list": {
+    "description": "List projects",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "include_archived": {
+          "description": "Include archived projects",
+          "type": "boolean"
+        },
+        "include_removed": {
+          "description": "Include removed projects",
+          "type": "boolean"
+        },
+        "max_count": {
+          "default": 100,
+          "description": "Max results (<=1000)",
+          "type": "integer"
+        },
+        "offset": {
+          "description": "Pagination offset (>=0)",
+          "type": "integer"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "name": "project_list"
+  },
+  "project_tasks_full": {
+    "description": "Get all tasks of a project with their notes (batch: task_list + note_list for all tasks)",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "include_notes": {
+          "description": "Include task notes (default: true)",
+          "type": "boolean"
+        },
+        "project_id": {
+          "description": "Project ID (P-xxx)",
+          "type": "string"
+        }
+      },
+      "required": [
+        "project_id"
+      ],
+      "type": "object"
+    },
+    "name": "project_tasks_full"
+  },
+  "project_update": {
+    "description": "Update project",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "color": {
+          "description": "Color value",
+          "type": "string"
+        },
+        "emoji": {
+          "description": "Emoji hex code (e.g. 1f49e)",
+          "type": "string"
+        },
+        "end": {
+          "description": "End date ISO",
+          "type": "string"
+        },
+        "externalId": {
+          "description": "External ID",
+          "type": "string"
+        },
+        "id": {
+          "description": "Project ID",
+          "type": "string"
+        },
+        "isNotebook": {
+          "description": "Notebook flag",
+          "type": "boolean"
+        },
+        "note": {
+          "description": "Project description",
+          "type": "string"
+        },
+        "parent": {
+          "description": "Parent project ID",
+          "type": "string"
+        },
+        "parentOrder": {
+          "description": "Order within parent",
+          "type": "integer"
+        },
+        "showInBasket": {
+          "description": "Show in basket",
+          "type": "boolean"
+        },
+        "start": {
+          "description": "Start date ISO",
+          "type": "string"
+        },
+        "tags": {
+          "description": "Tag IDs array",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "title": {
+          "description": "Project title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "name": "project_update"
+  },
+  "rebuild_references": {
+    "description": "Regenerate references cache from API while preserving project descriptions in projects.json",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {},
+      "required": [],
+      "type": "object"
+    },
+    "name": "rebuild_references"
+  },
+  "tag_create": {
+    "description": "Create tag",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "color": {
+          "description": "Tag color",
+          "type": "string"
+        },
+        "externalId": {
+          "description": "External ID",
+          "type": "string"
+        },
+        "hotkey": {
+          "description": "Keyboard shortcut",
+          "type": "string"
+        },
+        "parent": {
+          "description": "Parent tag ID",
+          "type": "string"
+        },
+        "parentOrder": {
+          "description": "Order within parent",
+          "type": "integer"
+        },
+        "title": {
+          "description": "Tag title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "title"
+      ],
+      "type": "object"
+    },
+    "name": "tag_create"
+  },
+  "tag_delete": {
+    "description": "Delete tag",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "id": {
+          "description": "Tag ID",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "name": "tag_delete"
+  },
+  "tag_get": {
+    "description": "Get tag by ID",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "id": {
+          "description": "Tag ID",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "name": "tag_get"
+  },
+  "tag_list": {
+    "description": "List tags",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "include_removed": {
+          "description": "Include removed",
+          "type": "boolean"
+        },
+        "max_count": {
+          "default": 100,
+          "description": "Max results",
+          "type": "integer"
+        },
+        "offset": {
+          "description": "Pagination offset",
+          "type": "integer"
+        },
+        "parent": {
+          "description": "Parent tag ID",
+          "type": "string"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "name": "tag_list"
+  },
+  "tag_update": {
+    "description": "Update tag",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "color": {
+          "description": "Tag color",
+          "type": "string"
+        },
+        "externalId": {
+          "description": "External ID",
+          "type": "string"
+        },
+        "hotkey": {
+          "description": "Keyboard shortcut",
+          "type": "string"
+        },
+        "id": {
+          "description": "Tag ID",
+          "type": "string"
+        },
+        "parent": {
+          "description": "Parent tag ID",
+          "type": "string"
+        },
+        "parentOrder": {
+          "description": "Order within parent",
+          "type": "integer"
+        },
+        "title": {
+          "description": "Tag title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "name": "tag_update"
+  },
+  "task_create": {
+    "description": "Create task",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "alarmNotify": {
+          "description": "Alarm notification",
+          "type": "boolean"
+        },
+        "checked": {
+          "description": "Checked flag",
+          "type": "boolean"
+        },
+        "complete": {
+          "description": "Completion datetime ISO",
+          "type": "string"
+        },
+        "completeLast": {
+          "description": "Last completion datetime",
+          "type": "string"
+        },
+        "deadline": {
+          "description": "Deadline datetime ISO",
+          "type": "string"
+        },
+        "externalId": {
+          "description": "External ID",
+          "type": "string"
+        },
+        "isNote": {
+          "description": "Note in notebook flag",
+          "type": "boolean"
+        },
+        "journalDate": {
+          "description": "Journal date ISO",
+          "type": "string"
+        },
+        "note": {
+          "description": "Task description",
+          "type": "string"
+        },
+        "notifies": {
+          "description": "Notification minutes array e.g. [60,15]",
+          "items": {
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "notify": {
+          "description": "Notification flag (0 or 1)",
+          "type": "integer"
+        },
+        "parent": {
+          "description": "Task group ID (parent)",
+          "type": "string"
+        },
+        "priority": {
+          "description": "Priority (default 1)",
+          "type": "integer"
+        },
+        "projectId": {
+          "description": "Project ID",
+          "type": "string"
+        },
+        "recurrence": {
+          "description": "Recurrence config",
+          "properties": {},
+          "type": "object"
+        },
+        "showInBasket": {
+          "description": "Show in basket",
+          "type": "boolean"
+        },
+        "start": {
+          "description": "Start datetime ISO",
+          "type": "string"
+        },
+        "state": {
+          "description": "Task state",
+          "type": "string"
+        },
+        "tags": {
+          "description": "Tag IDs array",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "title": {
+          "description": "Task title",
+          "type": "string"
+        },
+        "useTime": {
+          "description": "false=date only, true=real time GMT+3",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "title",
+        "parent"
+      ],
+      "type": "object"
+    },
+    "name": "task_create"
+  },
+  "task_delete": {
+    "description": "Delete task",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "id": {
+          "description": "Task ID",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "name": "task_delete"
+  },
+  "task_full": {
+    "description": "Get task with its note (batch: task_get + note_list). Accepts task ID or Singularity URL.",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "task_id": {
+          "description": "Task ID (T-xxx) or Singularity URL (singularityapp://... or https://web.singularity-app.com/...)",
+          "type": "string"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "name": "task_full"
+  },
+  "task_get": {
+    "description": "Get task by ID",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "id": {
+          "description": "Task ID",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "name": "task_get"
+  },
+  "task_group_create": {
+    "description": "Create task group",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "externalId": {
+          "description": "External ID",
+          "type": "string"
+        },
+        "fake": {
+          "description": "Fake group flag",
+          "type": "boolean"
+        },
+        "parent": {
+          "description": "Parent project ID (P-uuid)",
+          "type": "string"
+        },
+        "parentOrder": {
+          "description": "Order within parent",
+          "type": "integer"
+        },
+        "title": {
+          "description": "Group title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "parent"
+      ],
+      "type": "object"
+    },
+    "name": "task_group_create"
+  },
+  "task_group_delete": {
+    "description": "Delete task group",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "id": {
+          "description": "Task group ID",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "name": "task_group_delete"
+  },
+  "task_group_get": {
+    "description": "Get task group by ID",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "id": {
+          "description": "Task group ID",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "name": "task_group_get"
+  },
+  "task_group_list": {
+    "description": "List task groups",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "include_removed": {
+          "description": "Include removed",
+          "type": "boolean"
+        },
+        "max_count": {
+          "default": 100,
+          "description": "Max results",
+          "type": "integer"
+        },
+        "offset": {
+          "description": "Pagination offset",
+          "type": "integer"
+        },
+        "parent": {
+          "description": "Parent project ID (P-uuid format)",
+          "type": "string"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "name": "task_group_list"
+  },
+  "task_group_update": {
+    "description": "Update task group",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "externalId": {
+          "description": "External ID",
+          "type": "string"
+        },
+        "fake": {
+          "description": "Fake group flag",
+          "type": "boolean"
+        },
+        "id": {
+          "description": "Task group ID",
+          "type": "string"
+        },
+        "parent": {
+          "description": "Parent project ID",
+          "type": "string"
+        },
+        "parentOrder": {
+          "description": "Order within parent",
+          "type": "integer"
+        },
+        "title": {
+          "description": "Group title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "name": "task_group_update"
+  },
+  "task_list": {
+    "description": "List tasks",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "include_all_recurrence_instances": {
+          "description": "Include all recurrence instances",
+          "type": "boolean"
+        },
+        "include_archived": {
+          "description": "Include archived",
+          "type": "boolean"
+        },
+        "include_removed": {
+          "description": "Include removed",
+          "type": "boolean"
+        },
+        "max_count": {
+          "default": 100,
+          "description": "Max results (<=1000)",
+          "type": "integer"
+        },
+        "offset": {
+          "description": "Pagination offset",
+          "type": "integer"
+        },
+        "parent": {
+          "description": "Filter by parent task group ID",
+          "type": "string"
+        },
+        "project_id": {
+          "description": "Filter by project ID",
+          "type": "string"
+        },
+        "start_date_from": {
+          "description": "Start date from (ISO)",
+          "type": "string"
+        },
+        "start_date_to": {
+          "description": "Start date to (ISO)",
+          "type": "string"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "name": "task_list"
+  },
+  "task_update": {
+    "description": "Update task",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "alarmNotify": {
+          "description": "Alarm notification",
+          "type": "boolean"
+        },
+        "checked": {
+          "description": "Checked flag",
+          "type": "boolean"
+        },
+        "complete": {
+          "description": "Completion datetime ISO",
+          "type": "string"
+        },
+        "completeLast": {
+          "description": "Last completion datetime",
+          "type": "string"
+        },
+        "deadline": {
+          "description": "Deadline datetime ISO",
+          "type": "string"
+        },
+        "externalId": {
+          "description": "External ID",
+          "type": "string"
+        },
+        "id": {
+          "description": "Task ID",
+          "type": "string"
+        },
+        "isNote": {
+          "description": "Note in notebook flag",
+          "type": "boolean"
+        },
+        "journalDate": {
+          "description": "Journal date ISO",
+          "type": "string"
+        },
+        "note": {
+          "description": "Task description",
+          "type": "string"
+        },
+        "notifies": {
+          "description": "Notification minutes array",
+          "items": {
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "notify": {
+          "description": "Notification flag (0 or 1)",
+          "type": "integer"
+        },
+        "parent": {
+          "description": "Task group ID",
+          "type": "string"
+        },
+        "priority": {
+          "description": "Priority",
+          "type": "integer"
+        },
+        "projectId": {
+          "description": "Project ID",
+          "type": "string"
+        },
+        "recurrence": {
+          "description": "Recurrence config",
+          "properties": {},
+          "type": "object"
+        },
+        "showInBasket": {
+          "description": "Show in basket",
+          "type": "boolean"
+        },
+        "start": {
+          "description": "Start datetime ISO",
+          "type": "string"
+        },
+        "state": {
+          "description": "Task state",
+          "type": "string"
+        },
+        "tags": {
+          "description": "Tag IDs array",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "title": {
+          "description": "Task title",
+          "type": "string"
+        },
+        "useTime": {
+          "description": "false=date only, true=real time GMT+3",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "name": "task_update"
+  },
+  "time_stat_bulk_delete": {
+    "description": "Bulk delete time tracking entries by filter",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "date_from": {
+          "description": "Date from ISO",
+          "type": "string"
+        },
+        "date_to": {
+          "description": "Date to ISO",
+          "type": "string"
+        },
+        "related_task_id": {
+          "description": "Filter by task ID",
+          "type": "string"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "name": "time_stat_bulk_delete"
+  },
+  "time_stat_create": {
+    "description": "Create time tracking entry",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "relatedTaskId": {
+          "description": "Related task ID",
+          "type": "string"
+        },
+        "secondsPassed": {
+          "description": "Seconds passed",
+          "type": "integer"
+        },
+        "source": {
+          "description": "0=pomodoro, 1=stopwatch",
+          "type": "integer"
+        },
+        "start": {
+          "description": "Start datetime ISO",
+          "type": "string"
+        }
+      },
+      "required": [
+        "start",
+        "secondsPassed"
+      ],
+      "type": "object"
+    },
+    "name": "time_stat_create"
+  },
+  "time_stat_delete": {
+    "description": "Delete time tracking entry",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "id": {
+          "description": "Time stat ID",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "name": "time_stat_delete"
+  },
+  "time_stat_get": {
+    "description": "Get time tracking entry by ID",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "id": {
+          "description": "Time stat ID",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "name": "time_stat_get"
+  },
+  "time_stat_list": {
+    "description": "List time tracking entries",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "date_from": {
+          "description": "Date from ISO",
+          "type": "string"
+        },
+        "date_to": {
+          "description": "Date to ISO",
+          "type": "string"
+        },
+        "max_count": {
+          "default": 100,
+          "description": "Max results",
+          "type": "integer"
+        },
+        "offset": {
+          "description": "Pagination offset",
+          "type": "integer"
+        },
+        "related_task_id": {
+          "description": "Filter by task ID",
+          "type": "string"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "name": "time_stat_list"
+  },
+  "time_stat_update": {
+    "description": "Update time tracking entry",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "id": {
+          "description": "Time stat ID",
+          "type": "string"
+        },
+        "relatedTaskId": {
+          "description": "Related task ID",
+          "type": "string"
+        },
+        "secondsPassed": {
+          "description": "Seconds passed",
+          "type": "integer"
+        },
+        "source": {
+          "description": "0=pomodoro, 1=stopwatch",
+          "type": "integer"
+        },
+        "start": {
+          "description": "Start datetime ISO",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "name": "time_stat_update"
+  }
+}

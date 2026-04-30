@@ -1,8 +1,51 @@
----
+﻿---
 name: singularity
-description: REST API client for Singularity App -- task management, projects, habits, kanban boards, notes, time tracking (63 tools)
-version: 1.2.1
+description: REST API client for Singularity App -- task management, projects, habits, kanban boards, notes, time tracking (<!-- TOOLS_COUNT_BEGIN -->64<!-- TOOLS_COUNT_END --> tools)
+version: 1.5.0
 ---
+
+## Self-checks (read-only, no side effects)
+
+```bash
+python cli.py --doctor             # 8 sanity checks: config, gitignore, base_url, OpenAPI, /v2/note capability, cache files, contract baseline
+python cli.py --verify-cache       # references/*.json schema_version, complete=True, no legacy
+python cli.py --verify-metadata    # tools.json must match runtime TOOL_CATALOG (no drift)
+python cli.py --verify-api         # live API smoke: 6 canonical endpoints reachable + shapes match observed
+```
+
+All four are zero-side-effect (no file writes, no config touches). They are
+the recommended way to validate skill health before/after edits.
+
+## Known limitations (T7.8)
+
+These are documented gaps that consumers should be aware of:
+
+1. **`/v2/note` is undocumented in v2 swagger.** The skill uses it per
+   `references/contract/notes-decision.md` (Decision A). Wrapper key is
+   `notes`, body field per note is `content`. If Singularity API drops this
+   endpoint, all derived tools (`task_full`, `project_tasks_full`,
+   `inbox_list`) will return `status: "degraded"`.
+2. **`task.note` is NOT embedded in `GET /v2/task/{id}` response.** The
+   `expand=note` query parameter has no effect (verified empirically).
+   Notes always require a separate `/v2/note` lookup.
+3. **`inbox_list` uses paginated full scan with `page_limit=10` (10 000
+   items max).** Filtering inbox tasks (no projectId) is client-side; the
+   API has no server-side inbox filter. If you have >10k inbox tasks,
+   the response will have `partial: true`.
+4. **`rebuild_references` is N+1 for task groups.** One pagination call
+   per project. ~1 minute for 50 projects, slower for larger accounts.
+   Throttle between projects is not yet wired (paginator supports
+   `throttle_ms` but rebuild loop doesn't pass it).
+5. **Project lookup uses `references/projects.json` only.** Markdown cache is
+   removed in v1.5.0.
+6. **Legacy cache auto-migration is helper-only.** `cache.migrate_legacy_cache()`
+   exists for JSON reference caches. `--verify-cache` will fail on legacy
+   format until you run `rebuild_references`.
+7. **Singularity API rate limits are not characterised.** Skill has
+   built-in retry on 429 with exponential backoff (1s, 2s, 4s) and
+   `iterate_pages(throttle_ms=...)` opt-in. No documented hard limit
+   from the vendor; observed: bursty usage during `rebuild_references`
+   has not triggered 429 on test account.
 
 ## Проверка готовности (при каждом вызове)
 
@@ -10,7 +53,7 @@ version: 1.2.1
 
 1. **`references/projects.json`** — если нет → запусти `rebuild_references()`
 2. **`references/tags.json`** — если нет → запусти `rebuild_references()`
-3. **`references/project_meta.json`** — если нет → создать пустой `{}`
+3. **`references/project_meta.json`** — legacy first-import fallback only; new project descriptions are edited with `project_describe`
 4. **`references/tag_meta.json`** — если нет → создать пустой `{}`
 
 Если все файлы на месте — работай как обычно. Если чего-то не хватает — сначала заполни недостающее, потом выполняй запрос.
@@ -38,23 +81,21 @@ version: 1.2.1
 - ✅ Описания из meta файлов
 - ❌ НЕТ задач, заметок, привычек
 
-## Project Cache
+## Project Lookup
 
-A project tree with IDs is available at `projects_cache.md` in this skill directory.
-**Always check it first** before calling `project_list` to save context tokens.
+Project lookup uses `references/projects.json` only. Markdown cache is removed
+in v1.5.0.
 
-The cache is **auto-managed**:
-- On first use (cache missing) it is built automatically
-- Refreshed silently every 7 days before any `--call` invocation
-- Refresh messages go to stderr and do not pollute JSON output
+Use `project_describe` to edit local project descriptions stored in
+`references/projects.json`. `references/project_meta.json` is retained only as
+a first-import fallback for brand new projects during `rebuild_references`.
 
-Manual refresh:
-```bash
-python cli.py --refresh-cache
-```
+## Migration handling
 
-Cache location: `projects_cache.md` (next to `cli.py`).
-Last update timestamp stored in `config.json` as `"cache_updated": "2026-02-19T16:30:00"`.
+If a command returns `MIGRATION_PENDING`, read `source_path`, prepare a JSON
+object keyed by project ID, call `project_describe` once with `batch`, then
+rerun the original command. Do not edit `projects_cache.md`; it is archived by
+the tool after a successful migration.
 
 # Singularity App Skill
 
@@ -103,140 +144,111 @@ python cli.py --call '{"tool":"task_list","arguments":{"parent":"T-<task-id>"}}'
 | Все задачи проекта с заметками | `project_tasks_full(project_id="P-xxx", include_notes=true)` |
 | Посмотреть задачи в Inbox | `inbox_list()` — все задачи без projectId |
 
-## Available Tools (63)
+## Available Tools (<!-- TOOLS_COUNT_BEGIN -->64<!-- TOOLS_COUNT_END -->)
 
-### Projects (5 tools)
+### Tasks (<!-- CATEGORY_TOOLS_COUNT_BEGIN:task -->11<!-- CATEGORY_TOOLS_COUNT_END:task --> tools)
 
-| Tool | Description |
-|---|---|
-| `project_list` | List projects (params: max_count, offset, include_removed, include_archived) |
-| `project_get` | Get project by ID |
-| `project_create` | Create project (title, note, start, end, emoji, color, parent, isNotebook, tags...) |
-| `project_update` | Update project |
-| `project_delete` | Delete project |
+<!-- CATEGORY_TOOLS_LIST_START:task -->
+- `task_create` — Create task
+- `task_delete` — Delete task
+- `task_full` — Get task with its note (batch: task_get + note_list). Accepts task ID or Singularity URL.
+- `task_get` — Get task by ID
+- `task_group_create` — Create task group
+- `task_group_delete` — Delete task group
+- `task_group_get` — Get task group by ID
+- `task_group_list` — List task groups
+- `task_group_update` — Update task group
+- `task_list` — List tasks
+- `task_update` — Update task
+<!-- CATEGORY_TOOLS_LIST_END:task -->
 
-### Task Groups (5 tools)
+### Projects (<!-- CATEGORY_TOOLS_COUNT_BEGIN:project -->7<!-- CATEGORY_TOOLS_COUNT_END:project --> tools)
 
-| Tool | Description |
-|---|---|
-| `task_group_list` | List task groups (params: max_count, offset, include_removed, parent) |
-| `task_group_get` | Get task group by ID |
-| `task_group_create` | Create task group (title, parent required as P-uuid) |
-| `task_group_update` | Update task group |
-| `task_group_delete` | Delete task group |
+<!-- CATEGORY_TOOLS_LIST_START:project -->
+- `project_create` — Create project
+- `project_delete` — Delete project
+- `project_describe` — Edit local project descriptions in references/projects.json
+- `project_get` — Get project by ID
+- `project_list` — List projects
+- `project_tasks_full` — Get all tasks of a project with their notes (batch: task_list + note_list for all tasks)
+- `project_update` — Update project
+<!-- CATEGORY_TOOLS_LIST_END:project -->
 
-### Tasks (5 tools)
+### Tags (<!-- CATEGORY_TOOLS_COUNT_BEGIN:tag -->5<!-- CATEGORY_TOOLS_COUNT_END:tag --> tools)
 
-| Tool | Description |
-|---|---|
-| `task_list` | List tasks (params: max_count, offset, project_id, parent, start_date_from/to, include_removed/archived) |
-| `task_get` | Get task by ID |
-| `task_create` | Create task (title, parent required; note, priority, start, deadline, tags, recurrence...) |
-| `task_update` | Update task |
-| `task_delete` | Delete task |
+<!-- CATEGORY_TOOLS_LIST_START:tag -->
+- `tag_create` — Create tag
+- `tag_delete` — Delete tag
+- `tag_get` — Get tag by ID
+- `tag_list` — List tags
+- `tag_update` — Update tag
+<!-- CATEGORY_TOOLS_LIST_END:tag -->
 
-### Notes (5 tools)
+### Habits (<!-- CATEGORY_TOOLS_COUNT_BEGIN:habit -->10<!-- CATEGORY_TOOLS_COUNT_END:habit --> tools)
 
-| Tool | Description |
-|---|---|
-| `note_list` | List notes (params: max_count, offset, container_id) |
-| `note_get` | Get note by ID |
-| `note_create` | Create note (containerId, content as Delta array, contentType="delta") |
-| `note_update` | Update note |
-| `note_delete` | Delete note |
+<!-- CATEGORY_TOOLS_LIST_START:habit -->
+- `habit_create` — Create habit
+- `habit_delete` — Delete habit
+- `habit_get` — Get habit by ID
+- `habit_list` — List habits
+- `habit_progress_create` — Create habit progress entry
+- `habit_progress_delete` — Delete habit progress entry
+- `habit_progress_get` — Get habit progress entry by ID
+- `habit_progress_list` — List habit progress entries
+- `habit_progress_update` — Update habit progress entry
+- `habit_update` — Update habit
+<!-- CATEGORY_TOOLS_LIST_END:habit -->
 
-### Kanban Statuses (5 tools)
+### Kanban (<!-- CATEGORY_TOOLS_COUNT_BEGIN:kanban -->10<!-- CATEGORY_TOOLS_COUNT_END:kanban --> tools)
 
-| Tool | Description |
-|---|---|
-| `kanban_status_list` | List kanban statuses (params: max_count, offset, project_id) |
-| `kanban_status_get` | Get kanban status by ID |
-| `kanban_status_create` | Create kanban status (name, projectId required) |
-| `kanban_status_update` | Update kanban status |
-| `kanban_status_delete` | Delete kanban status |
+<!-- CATEGORY_TOOLS_LIST_START:kanban -->
+- `kanban_status_create` — Create kanban status
+- `kanban_status_delete` — Delete kanban status
+- `kanban_status_get` — Get kanban status by ID
+- `kanban_status_list` — List kanban statuses
+- `kanban_status_update` — Update kanban status
+- `kanban_task_status_create` — Create kanban task status
+- `kanban_task_status_delete` — Delete kanban task status
+- `kanban_task_status_get` — Get kanban task status by ID
+- `kanban_task_status_list` — List kanban task statuses
+- `kanban_task_status_update` — Update kanban task status
+<!-- CATEGORY_TOOLS_LIST_END:kanban -->
 
-### Kanban Task Statuses (5 tools)
+### Notes (<!-- CATEGORY_TOOLS_COUNT_BEGIN:note -->5<!-- CATEGORY_TOOLS_COUNT_END:note --> tools)
 
-| Tool | Description |
-|---|---|
-| `kanban_task_status_list` | List kanban task statuses (params: task_id, status_id) |
-| `kanban_task_status_get` | Get kanban task status by ID |
-| `kanban_task_status_create` | Create kanban task status (taskId, statusId required) |
-| `kanban_task_status_update` | Update kanban task status |
-| `kanban_task_status_delete` | Delete kanban task status |
+<!-- CATEGORY_TOOLS_LIST_START:note -->
+- `note_create` — Create note
+- `note_delete` — Delete note
+- `note_get` — Get note by ID
+- `note_list` — List notes
+- `note_update` — Update note
+<!-- CATEGORY_TOOLS_LIST_END:note -->
 
-### Habits (5 tools)
+### Time (<!-- CATEGORY_TOOLS_COUNT_BEGIN:time -->6<!-- CATEGORY_TOOLS_COUNT_END:time --> tools)
 
-| Tool | Description |
-|---|---|
-| `habit_list` | List habits |
-| `habit_get` | Get habit by ID |
-| `habit_create` | Create habit (title; color, status, description, order) |
-| `habit_update` | Update habit |
-| `habit_delete` | Delete habit |
+<!-- CATEGORY_TOOLS_LIST_START:time -->
+- `time_stat_bulk_delete` — Bulk delete time tracking entries by filter
+- `time_stat_create` — Create time tracking entry
+- `time_stat_delete` — Delete time tracking entry
+- `time_stat_get` — Get time tracking entry by ID
+- `time_stat_list` — List time tracking entries
+- `time_stat_update` — Update time tracking entry
+<!-- CATEGORY_TOOLS_LIST_END:time -->
 
-### Habit Progress (5 tools)
+### Derived / Utility (<!-- CATEGORY_TOOLS_COUNT_BEGIN:derived -->10<!-- CATEGORY_TOOLS_COUNT_END:derived --> tools)
 
-| Tool | Description |
-|---|---|
-| `habit_progress_list` | List habit progress (params: habit, start_date, end_date) |
-| `habit_progress_get` | Get habit progress entry by ID |
-| `habit_progress_create` | Create progress entry (habit, date, progress required) |
-| `habit_progress_update` | Update progress entry |
-| `habit_progress_delete` | Delete progress entry |
-
-### Checklist Items (5 tools)
-
-| Tool | Description |
-|---|---|
-| `checklist_list` | List checklist items (params: parent task ID) |
-| `checklist_get` | Get checklist item by ID |
-| `checklist_create` | Create checklist item (parent task ID, title required) |
-| `checklist_update` | Update checklist item |
-| `checklist_delete` | Delete checklist item |
-
-### Tags (5 tools)
-
-| Tool | Description |
-|---|---|
-| `tag_list` | List tags (params: parent tag ID) |
-| `tag_get` | Get tag by ID |
-| `tag_create` | Create tag (title required; color, hotkey, parent) |
-| `tag_update` | Update tag |
-| `tag_delete` | Delete tag |
-
-### Time Stats (6 tools)
-
-| Tool | Description |
-|---|---|
-| `time_stat_list` | List time entries (params: date_from, date_to, related_task_id) |
-| `time_stat_get` | Get time entry by ID |
-| `time_stat_create` | Create time entry (start ISO, secondsPassed required; relatedTaskId, source) |
-| `time_stat_update` | Update time entry |
-| `time_stat_delete` | Delete time entry |
-| `time_stat_bulk_delete` | Bulk delete time entries by filter (date_from, date_to, related_task_id) |
-
-### References (4 tools)
-
-| Tool | Description |
-|---|---|
-| `rebuild_references` | Regenerate references cache (projects.json, tags.json) from API and merge descriptions from meta files |
-| `generate_meta_template` | Generate meta template file with _title fields for easy editing (type: 'projects' or 'tags') |
-| `find_project` | Find project by name with auto-rebuild on cache miss (name, exact) |
-| `find_tag` | Find tag by name with auto-rebuild on cache miss (name, exact) |
-
-### Batch Operations (2 tools)
-
-| Tool | Description |
-|---|---|
-| `task_full` | Get task with its note (batch: task_get + note_list). Accepts task ID or Singularity URL (singularityapp:// or https://web.singularity-app.com/) |
-| `project_tasks_full` | Get all tasks of a project with their notes (batch: task_list + note_list for all tasks). Params: project_id (required), include_notes (default: true) |
-
-### Inbox Tools (1 tool)
-
-| Tool | Description |
-|---|---|
-| `inbox_list` | Get all tasks in Inbox (tasks without projectId). Returns up to 1000 tasks. Params: include_notes (default: false) |
+<!-- CATEGORY_TOOLS_LIST_START:derived -->
+- `checklist_create` — Create checklist item
+- `checklist_delete` — Delete checklist item
+- `checklist_get` — Get checklist item by ID
+- `checklist_list` — List checklist items
+- `checklist_update` — Update checklist item
+- `find_project` — Find project by name with auto-rebuild on cache miss
+- `find_tag` — Find tag by name with auto-rebuild on cache miss
+- `generate_meta_template` — Generate meta template file with _title fields for easy editing
+- `inbox_list` — Get all tasks in Inbox (tasks without projectId). Returns up to 1000 tasks.
+- `rebuild_references` — Regenerate references cache from API while preserving project descriptions in projects.json
+<!-- CATEGORY_TOOLS_LIST_END:derived -->
 
 ## Справочники (references/)
 
@@ -247,7 +259,7 @@ python cli.py --call '{"tool":"task_list","arguments":{"parent":"T-<task-id>"}}'
 | `references/projects.json` | Все проекты: id, title, emoji, color, parent, isNotebook, archived, description | `rebuild_references()` |
 | `references/tags.json` | Все теги: id, title, color, hotkey, parent, description | `rebuild_references()` |
 | `references/task_groups.json` | Маппинг project_id → base_task_group_id для быстрого создания задач | `rebuild_references()` |
-| `references/project_meta.json` | Ручные описания проектов (назначение) | Редактировать вручную |
+| `references/project_meta.json` | Legacy fallback descriptions for first import of brand new projects | Do not edit for normal updates; use `project_describe` |
 | `references/tag_meta.json` | Ручные описания тегов (назначение) | Редактировать вручную |
 
 ### Как использовать
@@ -322,9 +334,19 @@ python cli.py --call '{"tool":"find_tag","arguments":{"name":"AI"}}'
 
 Это универсальный способ работы с динамически меняющимися проектами (например, Jira интеграция).
 
-### project_meta.json / tag_meta.json — правила описаний
+### Project descriptions
 
-Файлы содержат ручные аннотации. Ключ — UUID, значение — объект с полем `description`.
+Project descriptions live in `references/projects.json`. Edit them with
+`project_describe`, using `id`+`text` for one project or `batch` for many.
+`null` deletes a description; empty string is rejected unless
+`allow_empty=true`.
+
+### project_meta.json / tag_meta.json — legacy fallback
+
+`project_meta.json` is no longer the normal editing surface for project
+descriptions. It is used only once for a brand new project that is absent from
+`references/projects.json` during `rebuild_references`. `tag_meta.json` keeps
+the previous manual tag-description workflow.
 
 **Формат:**
 ```json
@@ -350,7 +372,9 @@ python cli.py --call '{"tool":"find_tag","arguments":{"name":"AI"}}'
 - `"Срочные задачи, требующие немедленного внимания"`
 - `"Задачи, ожидающие ответа от других"`
 
-При `rebuild_references()` описания из meta файлов автоматически мержатся в `projects.json` / `tags.json` (поле `description`, null если не задано).
+При `rebuild_references()` existing project descriptions are preserved from
+`references/projects.json`; `project_meta.json` is only a first-import fallback
+for new project IDs. Tag descriptions still merge from `tag_meta.json`.
 
 **Поле `_title` для удобства:**
 

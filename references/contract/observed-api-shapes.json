@@ -1,0 +1,234 @@
+{
+  "_meta": {
+    "purpose": "Iteration 0 baseline — observed API shapes (redacted)",
+    "redaction": "tokens omitted; user content replaced by JSON Schema-style types",
+    "base_url": "https://api.singularity-app.com",
+    "task_id_acquired": true,
+    "decision_input": {
+      "v2_note_endpoint_works": true,
+      "v2_note_wrapper_keys": [
+        "notes"
+      ],
+      "task_has_note_default": false,
+      "task_has_note_with_expand": false
+    }
+  },
+  "endpoints": {
+    "GET /v2/task": {
+      "status": 200,
+      "shape": {
+        "tasks": [
+          {
+            "id": "string",
+            "title": "string",
+            "priority": "integer",
+            "state": "integer",
+            "projectId": "string",
+            "group": "string",
+            "createdDate": "string",
+            "modificatedDate": "string",
+            "scheduleOrder": "integer",
+            "parentOrder": "integer",
+            "seenToday": "string",
+            "tags": [
+              "<empty>"
+            ],
+            "modificated": {
+              "note": "integer",
+              "tags": "integer",
+              "group": "integer",
+              "start": "integer",
+              "state": "integer",
+              "title": "integer",
+              "isNote": "integer",
+              "notify": "integer",
+              "parent": "integer",
+              "checked": "integer",
+              "crypted": "integer",
+              "removed": "integer",
+              "useTime": "integer",
+              "complete": "integer",
+              "deadline": "integer",
+              "deferred": "integer",
+              "notifies": "integer",
+              "priority": "integer",
+              "progress": "integer",
+              "projectId": "integer",
+              "seenToday": "integer",
+              "deleteDate": "integer",
+              "externalId": "integer",
+              "recurrence": "integer",
+              "timeLength": "integer",
+              "alarmNotify": "integer",
+              "createdDate": "integer",
+              "journalDate": "integer",
+              "parentOrder": "integer",
+              "responsible": "integer",
+              "completeLast": "integer",
+              "showInBasket": "integer",
+              "pomodoroCount": "integer",
+              "scheduleOrder": "integer",
+              "integrationItemId": "integer",
+              "pomodoroTotalTime": "integer",
+              "startNotifyReaded": "integer",
+              "startNotifiesReaded": "integer",
+              "deadlineNotifyReaded": "integer",
+              "recurrenceGeneratorId": "integer"
+            }
+          },
+          "<5 items>"
+        ]
+      }
+    },
+    "GET /v2/note": {
+      "status": 200,
+      "shape": {
+        "notes": [
+          {
+            "id": "string",
+            "modificatedDate": "string",
+            "removed": "boolean",
+            "containerId": "string",
+            "content": "string",
+            "modificated": {
+              "content": "integer",
+              "crypted": "integer",
+              "removed": "integer",
+              "containerId": "integer"
+            }
+          },
+          "<1 items>"
+        ]
+      },
+      "wrapper_keys": [
+        "notes"
+      ]
+    },
+    "GET /v2/task/{id}": {
+      "status": 200,
+      "note_field_presence": "absent",
+      "note_shape": null,
+      "shape": {
+        "id": "string",
+        "title": "string",
+        "priority": "integer",
+        "state": "integer",
+        "projectId": "string",
+        "group": "string",
+        "createdDate": "string",
+        "modificatedDate": "string",
+        "scheduleOrder": "integer",
+        "parentOrder": "integer",
+        "seenToday": "string",
+        "tags": [
+          "<empty>"
+        ],
+        "modificated": {
+          "note": "integer",
+          "tags": "integer",
+          "group": "integer",
+          "start": "integer",
+          "state": "integer",
+          "title": "integer",
+          "isNote": "integer",
+          "notify": "integer",
+          "parent": "integer",
+          "checked": "integer",
+          "crypted": "integer",
+          "removed": "integer",
+          "useTime": "integer",
+          "complete": "integer",
+          "deadline": "integer",
+          "deferred": "integer",
+          "notifies": "integer",
+          "priority": "integer",
+          "progress": "integer",
+          "projectId": "integer",
+          "seenToday": "integer",
+          "deleteDate": "integer",
+          "externalId": "integer",
+          "recurrence": "integer",
+          "timeLength": "integer",
+          "alarmNotify": "integer",
+          "createdDate": "integer",
+          "journalDate": "integer",
+          "parentOrder": "integer",
+          "responsible": "integer",
+          "completeLast": "integer",
+          "showInBasket": "integer",
+          "pomodoroCount": "integer",
+          "scheduleOrder": "integer",
+          "integrationItemId": "integer",
+          "pomodoroTotalTime": "integer",
+          "startNotifyReaded": "integer",
+          "startNotifiesReaded": "integer",
+          "deadlineNotifyReaded": "integer",
+          "recurrenceGeneratorId": "integer"
+        }
+      }
+    },
+    "GET /v2/task/{id}?expand=note": {
+      "status": 200,
+      "note_field_presence": "absent",
+      "note_shape": null,
+      "shape": {
+        "id": "string",
+        "title": "string",
+        "priority": "integer",
+        "state": "integer",
+        "projectId": "string",
+        "group": "string",
+        "createdDate": "string",
+        "modificatedDate": "string",
+        "scheduleOrder": "integer",
+        "parentOrder": "integer",
+        "seenToday": "string",
+        "tags": [
+          "<empty>"
+        ],
+        "modificated": {
+          "note": "integer",
+          "tags": "integer",
+          "group": "integer",
+          "start": "integer",
+          "state": "integer",
+          "title": "integer",
+          "isNote": "integer",
+          "notify": "integer",
+          "parent": "integer",
+          "checked": "integer",
+          "crypted": "integer",
+          "removed": "integer",
+          "useTime": "integer",
+          "complete": "integer",
+          "deadline": "integer",
+          "deferred": "integer",
+          "notifies": "integer",
+          "priority": "integer",
+          "progress": "integer",
+          "projectId": "integer",
+          "seenToday": "integer",
+          "deleteDate": "integer",
+          "externalId": "integer",
+          "recurrence": "integer",
+          "timeLength": "integer",
+          "alarmNotify": "integer",
+          "createdDate": "integer",
+          "journalDate": "integer",
+          "parentOrder": "integer",
+          "responsible": "integer",
+          "completeLast": "integer",
+          "showInBasket": "integer",
+          "pomodoroCount": "integer",
+          "scheduleOrder": "integer",
+          "integrationItemId": "integer",
+          "pomodoroTotalTime": "integer",
+          "startNotifyReaded": "integer",
+          "startNotifiesReaded": "integer",
+          "deadlineNotifyReaded": "integer",
+          "recurrenceGeneratorId": "integer"
+        }
+      }
+    }
+  }
+}

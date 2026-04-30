@@ -5,5 +5,9 @@ __pycache__/
 nul
 .claude/
 projects_cache.md
+projects_cache.md.pre-*.bak
 references/*.json
+references/*.legacy
 !references/*.example.json
+tmp*/
+manual_*/
