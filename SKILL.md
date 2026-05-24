@@ -21,13 +21,19 @@ the recommended way to validate skill health before/after edits.
 These are documented gaps that consumers should be aware of:
 
 1. **`/v2/note` is undocumented in v2 swagger.** The skill uses it per
-   `references/contract/notes-decision.md` (Decision A). Wrapper key is
-   `notes`, body field per note is `content`. If Singularity API drops this
-   endpoint, all derived tools (`task_full`, `project_tasks_full`,
-   `inbox_list`) will return `status: "degraded"`.
-2. **`task.note` is NOT embedded in `GET /v2/task/{id}` response.** The
-   `expand=note` query parameter has no effect (verified empirically).
-   Notes always require a separate `/v2/note` lookup.
+   `references/contract/notes-decision.md` (Decision A). The list endpoint
+   wrapper key is `notes`, body field per note is `content`. Derived tools
+   (`task_full`, `project_tasks_full`, `inbox_list`) read notes via the
+   single-resource endpoint `GET /v2/note/{note_id}`; if the API drops
+   either, they will return `status: "degraded"`.
+2. **`task.note` is NOT a full note object — it is the note's ID, and
+   `GET /v2/note?containerId=X` does NOT filter server-side.** Verified
+   empirically: the list endpoint returned an unrelated project note for
+   a task query. Since 1.5.1 `resolve_note` fetches by deterministic path
+   `GET /v2/note/N-{container_id}` (invariant `note.id == "N-" +
+   note.containerId` holds across observed data), with a `containerId`
+   mismatch guard that surfaces any future drift as `shape_mismatch`. The
+   `expand=note` query parameter on `/v2/task/{id}` also has no effect.
 3. **`inbox_list` uses paginated full scan with `page_limit=10` (10 000
    items max).** Filtering inbox tasks (no projectId) is client-side; the
    API has no server-side inbox filter. If you have >10k inbox tasks,

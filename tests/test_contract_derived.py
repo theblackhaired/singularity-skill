@@ -24,14 +24,17 @@ class TestDerivedToolContracts(unittest.TestCase):
         return handler(self.client(server), res_key, args)
 
     def test_task_full_returns_status_ok(self):
+        # Bug-fix 2026-05-22: task_full now uses deterministic
+        # GET /v2/note/N-<container_id> instead of the broken list filter.
+        # Caller threads task["note"] through so the explicit note_id wins.
         server = self.start_server({
             ("GET", "/v2/task/T-1"): lambda query: (
                 200,
-                {"id": "T-1", "status": "ok", "title": "Task"},
+                {"id": "T-1", "status": "ok", "title": "Task", "note": "N-T-1"},
             ),
-            ("GET", "/v2/note"): lambda query: (
+            ("GET", "/v2/note/N-T-1"): lambda query: (
                 200,
-                {"notes": [{"id": "N-1", "content": "note body"}]},
+                {"id": "N-T-1", "containerId": "T-1", "content": "note body"},
             ),
         })
 
@@ -39,15 +42,15 @@ class TestDerivedToolContracts(unittest.TestCase):
 
         self.assertEqual(result["status"], "ok")
         self.assertEqual(result["task"]["status"], "ok")
-        self.assertEqual(result["note"]["id"], "N-1")
+        self.assertEqual(result["note"]["id"], "N-T-1")
 
     def test_task_full_degraded_when_note_endpoint_fails(self):
         server = self.start_server({
             ("GET", "/v2/task/T-1"): lambda query: (
                 200,
-                {"id": "T-1", "status": "ok"},
+                {"id": "T-1", "status": "ok", "note": "N-T-1"},
             ),
-            ("GET", "/v2/note"): lambda query: (500, {"error": "down"}),
+            ("GET", "/v2/note/N-T-1"): lambda query: (500, {"error": "down"}),
         })
 
         result = self.call_tool(server, "task_full", {"task_id": "T-1"})
@@ -56,6 +59,23 @@ class TestDerivedToolContracts(unittest.TestCase):
         self.assertEqual(result["status"], "degraded")
         self.assertEqual(result["note_status"], "error")
         self.assertTrue(result["warnings"])
+
+    def test_task_full_missing_note_returns_ok(self):
+        """404 from /v2/note/N-<id> means the note simply doesn't exist —
+        task_full must still report status=ok with note=None."""
+        server = self.start_server({
+            ("GET", "/v2/task/T-1"): lambda query: (
+                200,
+                {"id": "T-1", "status": "ok", "note": "N-T-1"},
+            ),
+            ("GET", "/v2/note/N-T-1"): lambda query: (404, {"error": "not found"}),
+        })
+
+        result = self.call_tool(server, "task_full", {"task_id": "T-1"})
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["note_status"], "missing")
+        self.assertIsNone(result["note"])
 
     def test_project_tasks_full_uses_server_side_filter(self):
         server = self.start_server({

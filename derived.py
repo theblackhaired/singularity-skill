@@ -468,8 +468,11 @@ def _task_full_handler(client: "SingularityClient", res_key: str, args: dict) ->
     # Get task — quote() guards against URL injection if id contains slashes/etc (T1.6)
     task = client.get(f"/v2/task/{quote(task_id, safe='')}")
 
-    # Resolve note via note_resolver (T1.3 — wrapper key 'notes', not 'content')
-    note_result = resolve_note(client, task_id)
+    # Resolve note via note_resolver. Prefer the task's own `note` field as the
+    # source of truth for the note ID (the /v2/note?containerId= filter is
+    # ignored server-side — see resolve_note docstring).
+    task_note_id = task.get("note") if isinstance(task, dict) else None
+    note_result = resolve_note(client, task_id, note_id=task_note_id)
 
     return {
         "task": task,
@@ -518,7 +521,7 @@ def _project_tasks_full_handler(client: "SingularityClient", res_key: str, args:
     any_degraded = pag_partial
     for task in tasks:
         task_id = task["id"]
-        note_result = resolve_note(client, task_id)
+        note_result = resolve_note(client, task_id, note_id=task.get("note"))
         note = note_result["raw"]
         if note_result["status"] != "ok":
             any_degraded = True
@@ -582,7 +585,7 @@ def _inbox_list_handler(client: "SingularityClient", res_key: str, args: dict) -
     any_degraded = pag_partial
     for task in inbox_tasks:
         task_id = task["id"]
-        note_result = resolve_note(client, task_id)
+        note_result = resolve_note(client, task_id, note_id=task.get("note"))
         if note_result["status"] != "ok":
             any_degraded = True
             aggregated_warnings.extend(

@@ -26,62 +26,60 @@ class MockClient:
 
 class TestNoteResolver(unittest.TestCase):
     def test_success_path(self):
-        """A valid notes wrapper returns the first note content and raw note."""
-        raw = {"id": "N-1", "content": "hello"}
-        client = MockClient({"/v2/note": {"notes": [raw]}})
+        """GET /v2/note/N-<id> returning a valid note resolves to ok."""
+        raw = {"id": "N-T-1", "containerId": "T-1", "content": "hello"}
+        client = MockClient({"/v2/note/N-T-1": raw})
 
         result = resolve_note(client, "T-1")
 
         self.assertEqual(result["status"], "ok")
         self.assertEqual(result["note_status"], "ok")
         self.assertEqual(result["content"], "hello")
-        self.assertEqual(result["note_id"], "N-1")
+        self.assertEqual(result["note_id"], "N-T-1")
         self.assertEqual(result["raw"], raw)
         self.assertEqual(result["warnings"], [])
 
-    def test_empty_notes_array(self):
-        """An empty notes array is a successful missing-note result."""
-        client = MockClient({"/v2/note": {"notes": []}})
+    def test_uses_deterministic_path_not_list_filter(self):
+        """resolve_note must call /v2/note/N-<id>, never /v2/note?containerId=
+        (the list endpoint ignores containerId server-side and would return
+        an arbitrary note — that was the original bug)."""
+        client = MockClient({"/v2/note/N-T-abc": {
+            "id": "N-T-abc", "containerId": "T-abc", "content": "x"
+        }})
+
+        resolve_note(client, "T-abc")
+
+        self.assertEqual(client.calls, [("/v2/note/N-T-abc", None)])
+
+    def test_explicit_note_id_overrides_formula(self):
+        """If caller passes note_id (e.g. task['note']), it is used as-is."""
+        client = MockClient({"/v2/note/N-explicit": {
+            "id": "N-explicit", "containerId": "T-1", "content": "x"
+        }})
+
+        result = resolve_note(client, "T-1", note_id="N-explicit")
+
+        self.assertEqual(client.calls, [("/v2/note/N-explicit", None)])
+        self.assertEqual(result["status"], "ok")
+
+    def test_404_means_missing(self):
+        """HTTP 404 (note doesn't exist) maps to ok/missing, not error."""
+        client = MockClient({
+            "/v2/note/N-T-1": RuntimeError("HTTP 404 Not Found on GET /v2/note/N-T-1"),
+        })
 
         result = resolve_note(client, "T-1")
 
         self.assertEqual(result["status"], "ok")
         self.assertEqual(result["note_status"], "missing")
-        self.assertIsNone(result["content"])
         self.assertIsNone(result["raw"])
+        self.assertEqual(result["warnings"], [])
 
-    def test_missing_wrapper_key(self):
-        """A response without the notes wrapper key is a shape mismatch."""
-        client = MockClient({"/v2/note": {"foo": "bar"}})
-
-        result = resolve_note(client, "T-1")
-
-        self.assertEqual(result["status"], "degraded")
-        self.assertEqual(result["note_status"], "shape_mismatch")
-        self.assertTrue(result["warnings"])
-        self.assertIn("notes", result["warnings"][0])
-
-    def test_wrapper_not_array(self):
-        """The notes wrapper must be an array."""
-        client = MockClient({"/v2/note": {"notes": "string"}})
-
-        result = resolve_note(client, "T-1")
-
-        self.assertEqual(result["status"], "degraded")
-        self.assertEqual(result["note_status"], "shape_mismatch")
-
-    def test_first_note_not_dict(self):
-        """The first notes item must be an object."""
-        client = MockClient({"/v2/note": {"notes": ["string-not-dict"]}})
-
-        result = resolve_note(client, "T-1")
-
-        self.assertEqual(result["status"], "degraded")
-        self.assertEqual(result["note_status"], "shape_mismatch")
-
-    def test_runtime_error_from_client(self):
-        """RuntimeError from the client is returned as degraded note error."""
-        client = MockClient({"/v2/note": RuntimeError("HTTP 500")})
+    def test_500_is_degraded_error(self):
+        """Non-404 HTTP errors propagate as degraded with the error text."""
+        client = MockClient({
+            "/v2/note/N-T-1": RuntimeError("HTTP 500 boom"),
+        })
 
         result = resolve_note(client, "T-1")
 
@@ -89,9 +87,9 @@ class TestNoteResolver(unittest.TestCase):
         self.assertEqual(result["note_status"], "error")
         self.assertIn("HTTP 500", result["warnings"][0])
 
-    def test_unexpected_exception_from_client(self):
-        """Unexpected client exceptions include exception type and message."""
-        client = MockClient({"/v2/note": ValueError("boom")})
+    def test_unexpected_exception(self):
+        """Unexpected client exceptions are wrapped as degraded errors."""
+        client = MockClient({"/v2/note/N-T-1": ValueError("boom")})
 
         result = resolve_note(client, "T-1")
 
@@ -102,7 +100,7 @@ class TestNoteResolver(unittest.TestCase):
 
     def test_empty_container_id(self):
         """An empty container id degrades without making an HTTP call."""
-        client = MockClient({"/v2/note": {"notes": []}})
+        client = MockClient({})
 
         result = resolve_note(client, "")
 
@@ -111,16 +109,48 @@ class TestNoteResolver(unittest.TestCase):
         self.assertTrue(result["warnings"])
         self.assertEqual(len(client.calls), 0)
 
-    def test_url_params_correct(self):
-        """resolve_note calls /v2/note with containerId and maxCount=1."""
-        client = MockClient({"/v2/note": {"notes": []}})
+    def test_container_id_mismatch_is_shape_mismatch(self):
+        """If the backend returns a note for a different container,
+        surface it as shape_mismatch — never hand back wrong data silently
+        (this was the symptom of the original bug)."""
+        client = MockClient({"/v2/note/N-T-1": {
+            "id": "N-T-1", "containerId": "P-other", "content": "x"
+        }})
 
-        resolve_note(client, "T-abc")
+        result = resolve_note(client, "T-1")
 
-        self.assertEqual(
-            client.calls[-1],
-            ("/v2/note", {"containerId": "T-abc", "maxCount": 1}),
-        )
+        self.assertEqual(result["status"], "degraded")
+        self.assertEqual(result["note_status"], "shape_mismatch")
+        self.assertIn("containerId mismatch", result["warnings"][0])
+
+    def test_empty_dict_response_means_missing(self):
+        """Some backends return {} for a missing note rather than 404."""
+        client = MockClient({"/v2/note/N-T-1": {}})
+
+        result = resolve_note(client, "T-1")
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["note_status"], "missing")
+
+    def test_non_dict_response_is_shape_mismatch(self):
+        """A list/string response from /v2/note/{id} is a shape error."""
+        client = MockClient({"/v2/note/N-T-1": ["not", "a", "dict"]})
+
+        result = resolve_note(client, "T-1")
+
+        self.assertEqual(result["status"], "degraded")
+        self.assertEqual(result["note_status"], "shape_mismatch")
+
+    def test_note_id_with_special_chars_is_url_quoted(self):
+        """Path component is URL-encoded — defends against id injection."""
+        client = MockClient({"/v2/note/N-T-a%2Fb": {
+            "id": "N-T-a/b", "containerId": "T-a/b", "content": "x"
+        }})
+
+        resolve_note(client, "T-a/b")
+
+        # Slash in id must be percent-encoded so it doesn't traverse the path.
+        self.assertEqual(client.calls[-1][0], "/v2/note/N-T-a%2Fb")
 
 
 class TestNoteCapability(unittest.TestCase):

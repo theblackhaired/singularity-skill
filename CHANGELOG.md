@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.5.1] - 2026-05-22
+
+### Fixed
+- **`task_full` / `project_tasks_full` / `inbox_list` no longer return the wrong note.**
+  `GET /v2/note?containerId=X` is ignored server-side — the previous
+  list-then-take-`[0]` resolution handed back an arbitrary note (verified
+  empirically on `T-60ac3a52-...`, which received an unrelated project's
+  note). `note_resolver.resolve_note` now uses the deterministic single-
+  resource endpoint `GET /v2/note/{note_id}` (per the invariant
+  `note.id == "N-" + note.containerId`) and the derived handlers pass
+  `task["note"]` through explicitly when available. A post-fetch
+  `containerId` guard surfaces any future schema drift as
+  `note_status: "shape_mismatch"` instead of silently wrong data.
+  HTTP 404 from the resource endpoint now maps to `note_status: "missing"`.
+- Updated `tests/test_note_resolver.py` (14 cases) and
+  `tests/test_contract_derived.py` to lock the new path-based contract,
+  including 404→missing, container-id mismatch, explicit-`note_id`
+  override, and URL-quoting of the path component.
+
 ## [1.5.0] - 2026-04-28
 
 - Removed markdown project-cache runtime paths: no `--refresh-cache`, no auto-generation of `projects_cache.md`; project lookup now uses `references/projects.json` only.

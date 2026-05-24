@@ -83,7 +83,45 @@ Same bug at [cli.py:1661-1663](../../cli.py) (`_project_tasks_full_handler`) and
 
 - `/v2/note` is **undocumented**. The skill must run probe checks at startup or via `--doctor` to detect if the endpoint disappears in future API versions.
 - Pagination behavior of `/v2/note` matches other v2 endpoints (`maxCount` parameter accepted; full pagination contract — verify in T2.* with multi-page test).
-- Filtering by `containerId` is the only filter empirically verified. Other filters (e.g. `removed=false`) — NOT verified, do not assume.
+- ~~Filtering by `containerId` is the only filter empirically verified.~~
+  **Revised 2026-05-22:** The list endpoint `GET /v2/note?containerId=X` is
+  NOT filtered server-side — it returns an arbitrary note regardless of the
+  parameter. Re-verified on `T-60ac3a52-...`. Iteration 1's Decision-A
+  implementation was therefore handing back the wrong note for the right
+  task. Do NOT use the list endpoint as a per-container lookup.
+
+## Iteration 2 — deterministic per-note path (2026-05-22)
+
+The single-resource endpoint `GET /v2/note/{note_id}` is the reliable way to
+read a specific note. Two invariants observed across the data set:
+
+1. `note.id == "N-" + note.containerId` for every note (task and project).
+2. `task.note` in `GET /v2/task/{id}` is the note ID string (e.g.
+   `"N-T-60ac3a52-..."`), not an embedded note object.
+
+Updated implementation (live since 1.5.1, see `note_resolver.resolve_note`):
+
+```python
+def resolve_note(client, container_id, note_id=None):
+    resolved_note_id = note_id or f"N-{container_id}"
+    try:
+        resp = client.get(f"/v2/note/{quote(resolved_note_id, safe='')}")
+    except RuntimeError as exc:
+        if "HTTP 404" in str(exc):
+            return {"status": "ok", "note_status": "missing", ...}
+        return {"status": "degraded", "note_status": "error", ...}
+
+    # Guard: backend must echo back the requested container.
+    if resp.get("containerId") and resp["containerId"] != container_id:
+        return {"status": "degraded", "note_status": "shape_mismatch", ...}
+
+    return {"status": "ok", "note_status": "ok",
+            "content": resp.get("content"), "raw": resp, ...}
+```
+
+Callers in `derived.py` thread `task["note"]` through as the explicit
+`note_id` whenever it is present, so the deterministic path stays correct
+even if invariant 1 is ever violated.
 
 ## Capability check (must run before relying on resolver)
 

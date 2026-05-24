@@ -67,16 +67,23 @@ def note_capability_ok(client) -> bool:
     return isinstance(notes, list)
 
 
-def resolve_note(client, container_id: str) -> dict:
-    """Fetch the (most recent) note for a given container_id.
+def resolve_note(client, container_id: str, note_id: Optional[str] = None) -> dict:
+    """Fetch the note for a given container_id.
 
-    Per Decision A:
-      - endpoint: GET /v2/note?containerId=<id>&maxCount=1
-      - wrapper: response["notes"]: list
-      - body of note: notes[0]["content"] (Delta-formatted text)
+    Implementation note (bug-fix 2026-05-22):
+      `GET /v2/note?containerId=X` is NOT filtered server-side — the API
+      returns an arbitrary first note and ignores the `containerId` query
+      parameter, so the previous list-then-pick-[0] approach handed back
+      unrelated notes. Verified empirically on T-60ac3a52-... where the
+      list endpoint returned a project note from a different container.
 
-    Returns NoteResult dict. Never raises for documented failure modes;
-    structured `degraded`/`unsupported` is preferred over exceptions.
+    The fix uses the deterministic single-resource endpoint:
+      GET /v2/note/{note_id}
+    where `note_id` is either passed in explicitly (preferred — taken from
+    `task["note"]` by the caller) or derived from the invariant
+    `note.id == "N-" + note.containerId`. A post-fetch guard verifies the
+    returned `containerId` matches the requested one, so any future
+    schema drift surfaces as `shape_mismatch` instead of silent wrong-data.
     """
     if not container_id:
         return _empty_result(
@@ -85,13 +92,17 @@ def resolve_note(client, container_id: str) -> dict:
             warnings=["empty container_id passed to resolve_note"],
         )
 
+    resolved_note_id = note_id or f"N-{container_id}"
+
     try:
-        resp = client.get("/v2/note", params={
-            "containerId": container_id,
-            "maxCount": 1,
-        })
+        from urllib.parse import quote as _quote
+        resp = client.get(f"/v2/note/{_quote(resolved_note_id, safe='')}")
     except RuntimeError as exc:
-        # SingularityClient wraps HTTPError into RuntimeError with text
+        # SingularityClient wraps HTTPError into RuntimeError("HTTP <code> ...").
+        # 404 → note simply doesn't exist for this container → not an error.
+        msg = str(exc)
+        if "HTTP 404" in msg:
+            return _empty_result(status="ok", note_status="missing")
         return _empty_result(
             status="degraded",
             note_status="error",
@@ -104,43 +115,39 @@ def resolve_note(client, container_id: str) -> dict:
             warnings=[f"note endpoint raised {type(exc).__name__}: {exc}"],
         )
 
-    if not isinstance(resp, dict) or "notes" not in resp:
+    if not isinstance(resp, dict):
         return _empty_result(
             status="degraded",
             note_status="shape_mismatch",
             warnings=[
-                "expected wrapper key 'notes' in /v2/note response; "
-                f"got keys: {list(resp.keys()) if isinstance(resp, dict) else type(resp).__name__}"
+                f"expected dict from /v2/note/{resolved_note_id}; "
+                f"got {type(resp).__name__}"
             ],
         )
 
-    notes = resp.get("notes")
-    if not isinstance(notes, list):
-        return _empty_result(
-            status="degraded",
-            note_status="shape_mismatch",
-            warnings=["wrapper 'notes' present but not an array"],
-        )
-
-    if not notes:
+    # Some backends return {} for missing rather than 404.
+    if not resp or ("id" not in resp and "content" not in resp):
         return _empty_result(status="ok", note_status="missing")
 
-    head = notes[0]
-    if not isinstance(head, dict):
+    resp_container = resp.get("containerId")
+    if resp_container and resp_container != container_id:
         return _empty_result(
             status="degraded",
             note_status="shape_mismatch",
-            warnings=["first note in array is not an object"],
+            warnings=[
+                f"containerId mismatch: requested {container_id}, "
+                f"got {resp_container}"
+            ],
+            raw=resp,
+            note_id=resp.get("id"),
         )
 
-    body = head.get("content")
-    note_id = head.get("id")
     return _empty_result(
         status="ok",
         note_status="ok",
-        content=body,
-        note_id=note_id,
-        raw=head,
+        content=resp.get("content"),
+        note_id=resp.get("id"),
+        raw=resp,
     )
 
 
