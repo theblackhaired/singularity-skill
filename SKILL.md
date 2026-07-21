@@ -1,7 +1,6 @@
-﻿---
+---
 name: singularity
-description: REST API client for Singularity App -- task management, projects, habits, kanban boards, notes, time tracking (<!-- TOOLS_COUNT_BEGIN -->64<!-- TOOLS_COUNT_END --> tools)
-version: 1.5.0
+description: REST API client for Singularity App task management, projects, habits, kanban boards, notes, time tracking, and safe movement of tasks between projects and sections.
 ---
 
 ## Self-checks (read-only, no side effects)
@@ -473,6 +472,22 @@ After task creation:
 - Структурированные пункты → `checklist_create` (не текстом в описание)
 - Описание (`note`) оставлять пустым, если вся информация уже в заголовке + чеклисте
 - Если нужно описание — использовать `task_update` с `note` (строка), не `note_create` (Delta format часто ломается)
+
+### Перенос задач между проектами
+
+У задачи независимы `projectId` и `group`. Изменение только `projectId` оставляет
+задачу в секции старого проекта: она видна в «Сегодня», но может исчезнуть из
+экрана целевого проекта.
+
+1. Получить живую секцию целевого проекта через `task_group_list` с
+   `parent = P-...`.
+2. В одном `task_update` передать новый `projectId` и соответствующий `group`.
+3. Повторно прочитать задачу и проверить: секция существует, а её `parent`
+   совпадает с `task.projectId`.
+
+`task_update` блокирует изменение `projectId` без `group` и отклоняет секцию
+чужого проекта. Поле `parent` у `task_update` означает родительскую задачу
+`T-...`; для секции использовать только `group: Q-...`.
 
 ### Emoji format
 - Hex Unicode code **without prefix**: `"1f49e"` (not `"U+1F49E"` or `"\u1f49e"`)

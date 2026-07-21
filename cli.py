@@ -33,7 +33,8 @@ REFS_DIR = ROOT / "references"
 #                            + tools.json now includes derived tools (closes Drift 3)
 # 1.4.2  Cache correctness: incomplete rebuilds and degraded read responses.
 # 1.5.0  JSON-only project descriptions, project_describe, migration state.
-SKILL_VERSION = "1.5.0"
+# 1.5.2  Safe project moves keep task projectId and group consistent.
+SKILL_VERSION = "1.5.2"
 
 # Iteration 1: notes resolved per Decision A in notes-decision.md.
 from note_resolver import resolve_note  # noqa: E402  -- after sys.stdout reconfigure
@@ -336,7 +337,8 @@ TOOL_CATALOG = {
             "start": {"type": "str", "desc": "Start datetime ISO"},
             "useTime": {"type": "bool", "desc": "false=date only, true=real time GMT+3"},
             "deadline": {"type": "str", "desc": "Deadline datetime ISO"},
-            "parent": {"type": "str", "desc": "Task group ID"},
+            "parent": {"type": "str", "desc": "Parent task ID (T-uuid), not task group"},
+            "group": {"type": "str", "desc": "Task group/section ID (Q-uuid)"},
             "tags": {"type": "list", "items": {"type": "string"}, "desc": "Tag IDs array"},
             "complete": {"type": "str", "desc": "Completion datetime ISO"},
             "completeLast": {"type": "str", "desc": "Last completion datetime"},

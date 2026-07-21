@@ -1644,6 +1644,10 @@
           "description": "External ID",
           "type": "string"
         },
+        "group": {
+          "description": "Task group/section ID (Q-uuid)",
+          "type": "string"
+        },
         "id": {
           "description": "Task ID",
           "type": "string"
@@ -1672,7 +1676,7 @@
           "type": "integer"
         },
         "parent": {
-          "description": "Task group ID",
+          "description": "Parent task ID (T-uuid), not task group",
           "type": "string"
         },
         "priority": {

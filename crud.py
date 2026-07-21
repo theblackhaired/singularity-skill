@@ -63,6 +63,10 @@ def _update_handler(client: SingularityClient, res_key: str,
     entity_id = args.get("id")
     if not entity_id:
         raise ValueError("id is required")
+
+    if res_key == "task":
+        _validate_task_group_update(client, entity_id, args)
+
     body = {}
     for field in res["body_fields"]:
         if field in args:
@@ -70,6 +74,35 @@ def _update_handler(client: SingularityClient, res_key: str,
     if not body:
         raise ValueError("At least one field to update is required")
     return client.patch(f"{res['path']}/{quote(str(entity_id))}", body)
+
+
+def _validate_task_group_update(client: SingularityClient, task_id: str,
+                                args: dict) -> None:
+    """Prevent project moves that leave a task in a missing/foreign group."""
+    project_id = args.get("projectId")
+    group_id = args.get("group")
+
+    if project_id is not None and group_id is None:
+        raise ValueError(
+            "task_update with projectId also requires group; resolve the "
+            "target project's live task group first"
+        )
+
+    if group_id is None:
+        return
+    if not isinstance(group_id, str) or not group_id.startswith("Q-"):
+        raise ValueError("group must be a task group ID in Q-uuid format")
+
+    group = client.get(f"/v2/task-group/{quote(group_id)}")
+    if project_id is None:
+        task = client.get(f"/v2/task/{quote(str(task_id))}")
+        project_id = task.get("projectId")
+
+    if group.get("parent") != project_id:
+        raise ValueError(
+            f"task group {group_id} belongs to {group.get('parent')!r}, "
+            f"not target project {project_id!r}"
+        )
 
 
 def _delete_handler(client: SingularityClient, res_key: str,

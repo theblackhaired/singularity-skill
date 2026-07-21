@@ -47,7 +47,7 @@ RESOURCES = {
         },
         "body_fields": [
             "title", "note", "priority", "start", "useTime", "deadline",
-            "parent", "tags", "complete", "completeLast", "state", "checked",
+            "parent", "group", "tags", "complete", "completeLast", "state", "checked",
             "showInBasket", "projectId", "recurrence", "journalDate",
             "isNote", "notify", "notifies", "alarmNotify", "externalId",
         ],

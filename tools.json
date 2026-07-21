@@ -1594,7 +1594,11 @@
         },
         "parent": {
           "type": "string",
-          "description": "Task group ID"
+          "description": "Parent task ID (T-uuid), not task group"
+        },
+        "group": {
+          "type": "string",
+          "description": "Task group/section ID (Q-uuid)"
         },
         "tags": {
           "type": "array",

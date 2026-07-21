@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.5.2] - 2026-07-21
+
+### Fixed
+- Added explicit `task_update.group` support for project sections (`Q-uuid`).
+- Blocked `task_update` calls that change `projectId` without the target
+  project's `group`.
+- Validate that a supplied group exists and belongs to the task's target
+  project before PATCH, preventing tasks that appear in Today but disappear
+  from their project view.
+- Clarified that `task_update.parent` is a parent task (`T-uuid`), not a task
+  group.
+
 ## [1.5.1] - 2026-05-22
 
 ### Fixed
