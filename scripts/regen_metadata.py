@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""T4.4 -- Regenerate tools.json + docs from cli.py TOOL_CATALOG.
+"""Regenerate tools.json and documentation from cli.py TOOL_CATALOG.
 
 Usage:
   python scripts/regen_metadata.py            # write

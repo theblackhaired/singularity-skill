@@ -1,4 +1,4 @@
-"""Cache module — Iteration 3 (T3.1, T3.3, T3.13).
+"""Atomic reference-cache storage and refresh helpers.
 
 Provides:
   - atomic_write_text(path, content)        — temp+os.replace
@@ -242,7 +242,7 @@ def build_cache_meta(
     total_items: int = 0,
     complete: bool = True,
 ) -> dict:
-    """Construct a CacheMeta dict (T3.3)."""
+    """Construct a CacheMeta dictionary."""
     return {
         "schema_version": CACHE_SCHEMA_VERSION,
         "generated_at": _now_iso_utc(),
@@ -305,7 +305,7 @@ def migrate_legacy_cache(path: Path) -> Path | None:
     """If `path` is legacy (no `_meta`), rename to `path.with_suffix('.legacy.json')`.
 
     Returns the legacy path if migration happened, else None.
-    Used on first read after upgrade (T3.13). Caller then triggers a rebuild.
+    Used on the first read after an upgrade; the caller then triggers a rebuild.
     """
     path = Path(path)
     info = read_cache(path)
@@ -555,9 +555,8 @@ def _rebuild_references_unlocked(client: SingularityClient, _res_key: str,
                                  _args: dict) -> dict:
     """Fetch projects and tags via paginator, merge meta, atomically write caches.
 
-    Iteration 2/3:
-      - Pagination via iterate_pages (T2.4, T2.5) — no more silent maxCount=1000 truncation.
-      - Atomic writes via cache.atomic_write_json + CacheMeta (T3.4-T3.6).
+    Uses pagination to avoid silent server-side truncation and writes each cache
+    atomically with completeness metadata.
       - All three cache files (projects, tags, task_groups) marked complete=False
         if any list page failed mid-stream.
     """
@@ -596,7 +595,7 @@ def _rebuild_references_unlocked(client: SingularityClient, _res_key: str,
         else []
     )
 
-    # --- Fetch all projects via paginator (T2.4) ---
+    # Fetch all projects through the paginator.
     proj_pag = _iterate_pages_for_call(
         client, "/v2/project",
         params={"includeRemoved": "false", "includeArchived": "true"},
@@ -606,7 +605,7 @@ def _rebuild_references_unlocked(client: SingularityClient, _res_key: str,
     if proj_pag["partial"]:
         warnings.extend(f"projects: {w}" for w in proj_pag["warnings"])
 
-    # --- Fetch all tags via paginator (T2.5) ---
+    # Fetch all tags through the paginator.
     tag_pag = _iterate_pages_for_call(
         client, "/v2/tag",
         params={"includeRemoved": "false"},
@@ -753,7 +752,7 @@ def _rebuild_references_unlocked(client: SingularityClient, _res_key: str,
                 )
 
             if task_groups:
-                # T8.5 — sort by parentOrder for deterministic "base" pick;
+                # Sort by parentOrder for a deterministic base-section pick;
                 # fallback to existing first-element behavior if parentOrder missing.
                 tg_sorted = sorted(
                     task_groups,
@@ -1050,7 +1049,7 @@ def _check_and_refresh_cache(cfg: dict) -> None:
     """
     refs_dir = _refs_dir()
 
-    # T3.13 — auto-migrate legacy cache (no _meta) before TTL check.
+    # Auto-migrate legacy cache data before checking its TTL.
     for fname in ("projects.json", "tags.json", "task_groups.json"):
         fpath = refs_dir / fname
         info = read_cache(fpath)

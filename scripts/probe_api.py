@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Iteration 0 — T0.1 + T0.2 — probe live API to fixate observed shapes.
+"""Probe the live API and record redacted response shapes.
 
 Calls (read-only):
   1. GET /v2/task?maxCount=5         -- pick a task with non-empty note
@@ -80,7 +80,7 @@ def shape(value, depth=0):
 def main():
     out = {
         "_meta": {
-            "purpose": "Iteration 0 baseline — observed API shapes (redacted)",
+            "purpose": "Observed API shapes (redacted)",
             "redaction": "tokens omitted; user content replaced by JSON Schema-style types",
             "base_url": BASE,
         },

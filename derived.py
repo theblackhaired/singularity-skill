@@ -168,7 +168,7 @@ def _load_indexed_projects():
 
     skipped = 0
     for p in projects:
-        # T8.2 — defensive: a single corrupt entry must not crash the whole index
+        # A single corrupt entry must not crash the whole index.
         pid = p.get("id")
         if not pid:
             skipped += 1
@@ -315,7 +315,7 @@ def _generate_meta_template_handler(client: SingularityClient, res_key: str, arg
             "description": existing.get("description", "")
         }
 
-    # Write template (T3.7 atomic + T3.12 TOCTOU-safe via O_EXCL when not overwriting)
+    # Write atomically and use O_EXCL to avoid overwrite races.
     REFS_DIR.mkdir(exist_ok=True)
     existed_before = meta_file.exists()  # capture BEFORE write — review fix
     if overwrite:
@@ -710,7 +710,7 @@ def _task_full_handler(client: "SingularityClient", res_key: str, args: dict) ->
     if not task_id.startswith("T-"):
         return {"error": f"Invalid task ID: {task_id_input}"}
 
-    # Get task — quote() guards against URL injection if id contains slashes/etc (T1.6)
+    # quote() guards against path injection if the ID contains slashes.
     task = client.get(f"/v2/task/{quote(task_id, safe='')}")
 
     # Resolve note via note_resolver. Prefer the task's own `note` field as the
@@ -722,7 +722,7 @@ def _task_full_handler(client: "SingularityClient", res_key: str, args: dict) ->
     return {
         "task": task,
         "note": note_result["raw"],          # back-compat: full note dict or None
-        # Iteration 1 additive metadata:
+        # Additive status metadata retained for caller compatibility:
         "status": note_result["status"],     # "ok" | "degraded" | "unsupported"
         "partial": note_result["partial"],
         "note_status": note_result["note_status"],
@@ -731,14 +731,14 @@ def _task_full_handler(client: "SingularityClient", res_key: str, args: dict) ->
 
 
 def _project_tasks_full_handler(client: "SingularityClient", res_key: str, args: dict) -> dict:
-    """All tasks of a project with their notes — server-side projectId filter (T2.7)."""
+    """Return all tasks of a project with notes, using a server-side filter."""
     project_id = args.get("project_id", "").strip()
     include_notes = args.get("include_notes", True)
 
     if not project_id.startswith("P-"):
         return {"error": f"Invalid project ID: {project_id}"}
 
-    # T2.7: server-side projectId filter via paginator. The API supports `projectId`
+    # The API supports a server-side `projectId` filter.
     # query param (RESOURCES['task'].list_filter_fields) — no client-side scan needed.
     pag = iterate_pages(
         client, "/v2/task",
@@ -760,7 +760,7 @@ def _project_tasks_full_handler(client: "SingularityClient", res_key: str, args:
             "warnings": pag_warnings,
         }
 
-    # Get notes for all tasks via note_resolver (T1.4)
+    # Resolve notes for all tasks through the shared guard.
     tasks_with_notes = []
     aggregated_warnings: list = list(pag_warnings)
     any_degraded = pag_partial
@@ -790,7 +790,7 @@ def _project_tasks_full_handler(client: "SingularityClient", res_key: str, args:
 
 
 def _inbox_list_handler(client: "SingularityClient", res_key: str, args: dict) -> dict:
-    """All inbox tasks (no projectId). T2.8: paginated full scan with page_limit cap.
+    """Return inbox tasks using a paginated scan with a page limit.
 
     No server-side "inbox" filter exists — we scan pages and filter client-side.
     `page_limit` (default 10 → 10k items) caps the scan; if reached, partial=True.
@@ -807,7 +807,7 @@ def _inbox_list_handler(client: "SingularityClient", res_key: str, args: dict) -
     pag_partial = pag["partial"]
     pag_warnings = list(pag["warnings"])
 
-    # T8.4: explicit None/"" check — keep tasks with projectId == 0 (legacy edge case)
+    # Keep legacy tasks with projectId == 0; only None and "" mean inbox.
     # excluded; inbox semantics historically = "no project assigned".
     inbox_tasks = [
         t for t in all_tasks
@@ -824,7 +824,7 @@ def _inbox_list_handler(client: "SingularityClient", res_key: str, args: dict) -
             "warnings": pag_warnings,
         }
 
-    # Get notes for all inbox tasks via note_resolver (T1.5)
+    # Resolve notes for all inbox tasks through the shared guard.
     tasks_with_notes = []
     aggregated_warnings: list = list(pag_warnings)
     any_degraded = pag_partial

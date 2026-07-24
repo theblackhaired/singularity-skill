@@ -1,4 +1,4 @@
-"""Pagination helper — Iteration 2 (T2.1).
+"""Pagination helper for list endpoints.
 
 Single source of truth for offset+maxCount paging. Replaces hardcoded
 `maxCount=1000` calls scattered across handlers. Surfaces `partial: true`

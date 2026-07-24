@@ -1,4 +1,4 @@
-"""Self-check runner for singularity skill (Iter 6 / T6.9).
+"""Self-check runner for the Singularity skill.
 
 Implements `--doctor` command logic: 8 read-only sanity checks.
 **ZERO side effects** — verified by tests/test_cli_parity::test_doctor_no_side_effects
@@ -26,7 +26,7 @@ ROOT = Path(__file__).resolve().parent
 
 
 def doctor_run(skill_version: str = "unknown", timeout: int = 10) -> dict:
-    """T0.13 — read-only self-check; ZERO side effects.
+    """Run a read-only self-check with no write side effects.
 
     Performs:
       1. config.json exists and parses
@@ -35,7 +35,7 @@ def doctor_run(skill_version: str = "unknown", timeout: int = 10) -> dict:
       4. /v2/api-json returns valid OpenAPI 3 JSON
       5. /v2/note capability (wrapper 'notes' present)
       6. cache files readable (if exist)
-      7. observed-api-shapes.json exists (post-T0.1 baseline)
+      7. observed-api-shapes.json exists
 
     Returns dict {status, skill_version, checks: [...]}; never writes.
     """
@@ -202,11 +202,11 @@ def doctor_run(skill_version: str = "unknown", timeout: int = 10) -> dict:
                    for s in cache_state)
     add("cache_files_readable", cache_ok, "; ".join(cache_state))
 
-    # C7. observed-api-shapes.json baseline
+    # Retained observations for endpoints absent from the OpenAPI document.
     obs_path = ROOT / "references" / "contract" / "observed-api-shapes.json"
-    add("contract_baseline_exists", obs_path.exists(),
-        f"baseline at {obs_path.relative_to(ROOT)}" if obs_path.exists()
-        else "missing — run scripts/probe_api.py to regenerate (T0.1+T0.2)")
+    add("api_observations_exist", obs_path.exists(),
+        f"observations at {obs_path.relative_to(ROOT)}" if obs_path.exists()
+        else "missing — run scripts/probe_api.py to regenerate")
 
     overall = "ok" if all(c["status"] == "ok" for c in checks) else "fail"
     return {

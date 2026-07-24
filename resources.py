@@ -1,4 +1,4 @@
-"""API resource definitions for singularity skill (Iter 6 / T6.4).
+"""API resource definitions for the Singularity skill.
 
 Static metadata: paths, body_fields, list_filter_fields per resource.
 Used by generic CRUD handlers in cli.py."""

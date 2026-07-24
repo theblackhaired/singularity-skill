@@ -21,31 +21,15 @@ sys.stdout.reconfigure(encoding="utf-8")
 ROOT = Path(__file__).resolve().parent
 REFS_DIR = ROOT / "references"
 
-# Skill version — bumped per references/contract/decisions.md §Versioning.
-# 1.0.0  Iter 0 baseline
-# 1.1.0  Iter 1: derived tools return additive {status,partial,note_status,warnings}
-# 1.2.0  Iter 2+3: paginator (no more silent maxCount=1000 truncation),
-#                  atomic cache writes with CacheMeta, secrets-safe auto-refresh
-# 1.3.0  Iter 4 (T4.3): --describe emits valid JSON Schema draft-07
-#                       (closes Drift 4: int→integer, str→string, items/properties)
-#                       + Iter 7: token redaction in error bodies (security)
-# 1.4.0  Iter 4 (T4.4-T4.9): tools.json regen + --verify-metadata + schema tests
-#                            + tools.json now includes derived tools (closes Drift 3)
-# 1.4.2  Cache correctness: incomplete rebuilds and degraded read responses.
-# 1.5.0  JSON-only project descriptions, project_describe, migration state.
-# 1.5.2  Safe project moves keep task projectId and group consistent.
-# 1.5.3  task_move resolves a live target section and verifies the move.
-# 1.5.4  find_project validates and incrementally refreshes its server cache.
-SKILL_VERSION = "1.5.4"
+SKILL_VERSION = "1.5.5"
 
-# Iteration 1: notes resolved per Decision A in notes-decision.md.
+# Notes use the deterministic contract documented in notes-decision.md.
 from note_resolver import resolve_note  # noqa: E402  -- after sys.stdout reconfigure
-# Iteration 6 / T6.9: --doctor logic extracted to dedicated module.
 from doctor import doctor_run as _doctor_run_impl  # noqa: E402
 # HTTP client extracted to dedicated module.
 from client import SingularityClient  # noqa: E402
 from errors import StructuredError, _error_response  # noqa: E402
-# Iteration 2: shared pagination helper (T2.1). Kept in cli namespace for tests.
+# Kept in the CLI namespace for compatibility with existing callers and tests.
 from pagination import iterate_pages   # noqa: E402
 # Cache primitives and Stage 2 cache handlers.
 from cache import (                     # noqa: E402
@@ -1125,7 +1109,7 @@ TOOL_DISPATCH["task_move"] = (None, _task_move_handler)
 # ---------------------------------------------------------------------------
 
 def _doctor_run(timeout: int = 10) -> dict:
-    """T0.13 wrapper — delegates to doctor.doctor_run with SKILL_VERSION injected.
+    """Delegate the self-check to doctor.doctor_run with the current version.
     Kept as a thin shim so existing argparse handler (--doctor) is unchanged.
     """
     return _doctor_run_impl(skill_version=SKILL_VERSION, timeout=timeout)
@@ -1165,7 +1149,7 @@ def main():
 
     cli_args = parser.parse_args()
 
-    # -- --verify-api (T7.1) — read-only live API smoke check ---------------
+    # -- --verify-api — read-only live API smoke check -----------------------
     if cli_args.verify_api:
         result: dict = {
             "status": "ok",
@@ -1191,7 +1175,7 @@ def main():
             ("/v2/project", "list projects"),
             ("/v2/task", "list tasks"),
             ("/v2/tag", "list tags"),
-            ("/v2/note", "list notes (per Decision A)"),
+            ("/v2/note", "list notes"),
             ("/v2/task-group", "list task groups"),
         ]
         for path, desc in endpoints_to_probe:
@@ -1208,7 +1192,7 @@ def main():
                         if ok else "did not return OpenAPI document"
                     )
                 elif path == "/v2/note":
-                    # T0.3 capability check — wrapper key 'notes' (Decision A)
+                    # The observed list wrapper is `notes`.
                     body = client.get(path, params={"maxCount": 1})
                     ok = isinstance(body, dict) and "notes" in body \
                          and isinstance(body["notes"], list)
@@ -1241,7 +1225,7 @@ def main():
         print(json.dumps(result, indent=2, ensure_ascii=False))
         sys.exit(0 if result["status"] == "ok" else 1)
 
-    # -- --verify-metadata (T4.7) — read-only check on tools.json drift -----
+    # -- --verify-metadata — read-only check on tools.json drift -------------
     if cli_args.verify_metadata:
         import subprocess
         try:
@@ -1272,7 +1256,7 @@ def main():
         print(json.dumps(out, indent=2, ensure_ascii=False))
         sys.exit(0 if in_sync else 1)
 
-    # -- --verify-cache (T3.14) — read-only check on cache integrity ---------
+    # -- --verify-cache — read-only check on cache integrity -----------------
     if cli_args.verify_cache:
         result = {"status": "ok", "skill_version": SKILL_VERSION, "checks": []}
         cache_files = ("projects.json", "tags.json", "task_groups.json")
@@ -1345,8 +1329,8 @@ def main():
             print(f"Tool not found: {name}", file=sys.stderr)
             sys.exit(1)
         meta = TOOL_CATALOG[name]
-        # T4.3 — translate Python type names to JSON Schema draft-07 type names.
-        # Closes Drift 4 (known-drifts.md). Map: int→integer, str→string,
+        # Translate Python type names to JSON Schema draft-07 type names.
+        # Map: int→integer, str→string,
         # float→number, bool→boolean, list→array (with items), object (with properties).
         TYPE_MAP = {
             "int": "integer",
@@ -1368,7 +1352,7 @@ def main():
             }
             # JSON Schema draft-07 requires `items` for arrays and `properties`
             # for objects. Defensive defaults — concrete schemas can be
-            # overridden in T4.1 catalog.py migration.
+            # overridden by explicit catalog metadata when needed.
             if t == "array":
                 ps["items"] = v.get("items", {"type": "string"})
             if t == "object":

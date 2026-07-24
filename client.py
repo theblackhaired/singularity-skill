@@ -108,8 +108,7 @@ class SingularityClient:
                     continue
                 raise
 
-        # T8.1 вЂ” explicit guard against silent None return when max_retries < 1.
-        # If the for-loop exits without success / raise (only possible at
+        # If the for-loop exits without success or an exception (only possible at
         # max_retries=0 with retryable HTTP), raise instead of returning None.
         raise RuntimeError(
             f"_request exited without success: {method} {url} "

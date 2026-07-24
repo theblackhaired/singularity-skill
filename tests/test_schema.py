@@ -1,9 +1,9 @@
-"""T4.8 — Schema validation tests.
+"""Schema validation tests.
 
 For every tool in TOOL_CATALOG, the `--describe` output's `inputSchema` must
-validate against JSON Schema draft-07 meta-schema (see decisions.md §JSON Schema).
+validate against the JSON Schema draft-07 meta-schema.
 
-Also enforces tools.json/runtime sync invariant (T4.7 surface).
+Also enforces the tools.json/runtime sync invariant.
 
 Run:
     python -m unittest tests.test_schema -v
@@ -59,7 +59,7 @@ def _tools_json_schema(tool_name: str) -> dict:
 
 
 class TestDescribeSchema(unittest.TestCase):
-    """T4.3 invariant: every --describe output is valid JSON Schema draft-07."""
+    """Every --describe output is valid JSON Schema draft-07."""
 
     @classmethod
     def setUpClass(cls):
@@ -88,7 +88,6 @@ class TestDescribeSchema(unittest.TestCase):
     def test_all_property_types_are_valid_json_schema(self):
         """No property uses Python type names (int/str/list/object/...).
 
-        Closes Drift 4 (known-drifts.md). Iteration 4 / T4.3.
         """
         for name in self.tool_names:
             with self.subTest(tool=name):
@@ -142,7 +141,7 @@ class TestDescribeSchema(unittest.TestCase):
 
 
 class TestToolsJsonSync(unittest.TestCase):
-    """T4.7 invariant: tools.json must match runtime catalog."""
+    """tools.json must match the runtime catalog."""
 
     def test_tools_json_in_sync(self):
         """scripts/regen_metadata.py --check exits 0 (no drift)."""

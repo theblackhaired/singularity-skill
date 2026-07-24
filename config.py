@@ -1,7 +1,7 @@
-"""Config loading for singularity skill (Iter 6 / T6.3).
+"""Config loading for the Singularity skill.
 
 This module is the ONLY place that reads or writes `config.json` (per
-secrets-policy.md). Cache layer must NOT touch config — see T3.9.
+secrets-policy.md). The cache layer must not touch config.
 
 Schema:
     {

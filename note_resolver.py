@@ -1,7 +1,7 @@
-"""Note resolution helper — Iteration 1 (T1.1 + T1.2).
+"""Deterministic note resolution helper.
 
-Encapsulates `/v2/note` capability and parsing per Decision A in
-`references/contract/notes-decision.md` (T0.3). Wrapper key is `notes`
+Encapsulates the observed `/v2/note` behavior documented in
+`references/contract/notes-decision.md`. Wrapper key is `notes`
 (undocumented v2 endpoint), each note has `content` field with body Delta.
 
 Public:

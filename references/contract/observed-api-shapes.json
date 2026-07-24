@@ -1,6 +1,6 @@
 {
   "_meta": {
-    "purpose": "Iteration 0 baseline — observed API shapes (redacted)",
+    "purpose": "Observed API shapes (redacted)",
     "redaction": "tokens omitted; user content replaced by JSON Schema-style types",
     "base_url": "https://api.singularity-app.com",
     "task_id_acquired": true,

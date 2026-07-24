@@ -1,45 +1,57 @@
 # Singularity App Skill
 
-## What's New
+Python stdlib client for the Singularity App REST API v2. It supports projects,
+tasks, sections, notes, tags, habits, kanban, checklists, and time tracking.
 
-**Jedi Techniques (Dorofeev)** — optional productivity skill with 8 modes based on Maxim Dorofeev's "Jedi Techniques" book. Brain dump, task reviews, decomposition, focus mode, incubator, context agendas, trigger lists, daily checklists. Activates only on request via natural language triggers. See [`singularity-jedi.md`](singularity-jedi.md).
+## Setup
 
-Script-based CLI skill for [Singularity App](https://singularity-app.com) task management API.
+Create an ignored `config.json`:
 
-65 tools covering 11 resources: projects, tasks, task groups, notes, kanban boards, habits, habit progress, checklists, tags, time tracking. Includes safe task moves (`task_move`), derived batch tools (`task_full`, `project_tasks_full`, `inbox_list`), and cache helpers (`rebuild_references`, `project_describe`, `find_project`, `find_tag`, `generate_meta_template`). `find_project` automatically checks the live server for changes before trusting any cache hit.
-
-## Quick start
-
-1. Create `config.json`:
 ```json
 {
   "base_url": "https://api.singularity-app.com",
   "token": "YOUR_API_TOKEN",
-  "read_only": false
+  "read_only": false,
+  "cache_ttl_days": 30
 }
 ```
 
-2. Run:
-```bash
+Use `"read_only": true` to block every write tool before network access.
+
+## Commands
+
+```powershell
 python cli.py --list
 python cli.py --describe task_list
-python cli.py --call '{"tool": "project_list", "arguments": {"max_count": 10}}'
+python cli.py --call '{"tool":"project_list","arguments":{"max_count":10}}'
 
-# Self-checks (read-only, no side effects):
-python cli.py --doctor              # full sanity check
-python cli.py --verify-cache        # cache integrity (schema_version, complete=True)
-python cli.py --verify-metadata     # tools.json sync with runtime catalog
+python cli.py --doctor
+python cli.py --verify-api
+python cli.py --verify-cache
+python cli.py --verify-metadata
 ```
 
-## Requirements
+Use `find_project` for authoritative project lookup. It validates the local
+project cache against the server before returning a result. Use `task_move` for
+cross-project moves so `projectId` and the target section (`group`, ID `Q-*`)
+are changed and verified together.
 
-- Python 3.10+ (uses PEP 604 union syntax)
-- No external runtime dependencies (pure stdlib). Test deps in `requirements-dev.txt`: `jsonschema`.
+The committed [tools.json](tools.json) is generated from the runtime catalog:
 
-## Documentation
+```powershell
+python scripts/regen_metadata.py
+python scripts/regen_metadata.py --check
+```
 
-Full tool reference, usage examples, and data format notes: [SKILL.md](SKILL.md)
+See [SKILL.md](SKILL.md) for operating rules and the official
+[REST API v2 schema](https://api.singularity-app.com/v2/api-json) for the
+upstream contract.
 
-## API reference
+## Development
 
-[Singularity REST API v2](https://api.singularity-app.com/v2/api-json)
+```powershell
+python -m pip install -r requirements-dev.txt
+python -m pytest -q
+```
+
+Python 3.10+ is required. Runtime code has no third-party dependencies.

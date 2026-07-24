@@ -1,4 +1,4 @@
-"""Typed exceptions for the singularity skill (Iter 6 / T6.2).
+"""Typed exceptions for the Singularity skill.
 
 Used by client.py / pagination.py / derived handlers. cli.py wraps these into
 RuntimeError for backward compatibility — see _request error path.
