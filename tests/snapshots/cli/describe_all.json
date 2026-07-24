@@ -133,7 +133,7 @@
     "name": "checklist_update"
   },
   "find_project": {
-    "description": "Find project by name with auto-rebuild on cache miss",
+    "description": "Find project by name after automatic live-server cache validation and refresh",
     "inputSchema": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "properties": {
@@ -1134,7 +1134,12 @@
     "description": "Regenerate references cache from API while preserving project descriptions in projects.json",
     "inputSchema": {
       "$schema": "http://json-schema.org/draft-07/schema#",
-      "properties": {},
+      "properties": {
+        "task_group_throttle_ms": {
+          "description": "Delay between per-project task-group requests (default: 750 ms; set 0 only for controlled testing)",
+          "type": "integer"
+        }
+      },
       "required": [],
       "type": "object"
     },
@@ -1614,6 +1619,36 @@
       "type": "object"
     },
     "name": "task_list"
+  },
+  "task_move": {
+    "description": "Move a task with an explicit or live-resolved target section and verify the result",
+    "inputSchema": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "properties": {
+        "id": {
+          "description": "Task ID (T-xxx)",
+          "type": "string"
+        },
+        "project_id": {
+          "description": "Target project ID (P-xxx)",
+          "type": "string"
+        },
+        "section": {
+          "description": "Exact target section title (case-insensitive)",
+          "type": "string"
+        },
+        "section_id": {
+          "description": "Target section ID (Q-xxx)",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "project_id"
+      ],
+      "type": "object"
+    },
+    "name": "task_move"
   },
   "task_update": {
     "description": "Update task",

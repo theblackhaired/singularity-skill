@@ -7,7 +7,7 @@ import os
 import sys
 from urllib.parse import quote
 
-from cache import atomic_write_json, read_cache
+from cache import atomic_write_json, read_cache, _sync_projects_cache_from_server
 from client import SingularityClient
 from config import ROOT
 from note_resolver import resolve_note
@@ -18,6 +18,126 @@ REFS_DIR = ROOT / "references"
 # Wired by cli.py after rebuild handler definition to avoid a circular import
 # while preserving cache-miss rebuild behavior during Stage 2 extraction.
 _rebuild_references_handler = None
+
+
+def _task_move_handler(client: SingularityClient, _res_key: str,
+                       args: dict) -> dict:
+    """Move a task and resolve its target project section atomically."""
+    task_id = str(args.get("id") or "").strip()
+    project_id = str(args.get("project_id") or "").strip()
+    section_id = str(args.get("section_id") or "").strip()
+    section_title = str(args.get("section") or "").strip()
+
+    if not task_id.startswith("T-"):
+        raise ValueError("id must be a task ID in T-uuid format")
+    if not project_id.startswith("P-"):
+        raise ValueError("project_id must be a project ID in P-uuid format")
+    if section_id and section_title:
+        raise ValueError("section_id and section are mutually exclusive")
+    if section_id and not section_id.startswith("Q-"):
+        raise ValueError("section_id must be a task group ID in Q-uuid format")
+
+    if section_id:
+        target_group = client.get(
+            f"/v2/task-group/{quote(section_id, safe='')}"
+        )
+        if (
+            not isinstance(target_group, dict)
+            or target_group.get("id") != section_id
+            or target_group.get("parent") != project_id
+            or target_group.get("removed")
+        ):
+            raise ValueError(
+                "section_id does not identify a live section of the "
+                "target project"
+            )
+    else:
+        pag = iterate_pages(
+            client,
+            "/v2/task-group",
+            params={"parent": project_id, "includeRemoved": "false"},
+            wrapper_keys=["taskGroups", "items"],
+        )
+        if pag["partial"]:
+            detail = "; ".join(pag["warnings"])
+            raise ValueError(
+                "target project sections could not be read completely; "
+                "specify section_id explicitly or grant task-group read scope"
+                + (f": {detail}" if detail else "")
+            )
+
+        groups = [
+            group for group in pag["items"]
+            if (
+                isinstance(group, dict)
+                and not group.get("removed")
+                and group.get("parent") == project_id
+                and str(group.get("id") or "").startswith("Q-")
+            )
+        ]
+
+        if section_title:
+            wanted = section_title.casefold()
+            matches = [
+                group for group in groups
+                if str(group.get("title") or "").strip().casefold() == wanted
+            ]
+        elif len(groups) == 1:
+            matches = groups
+        else:
+            matches = []
+
+        if len(matches) != 1:
+            available = [
+                {"id": group.get("id"), "title": group.get("title", "")}
+                for group in sorted(
+                    groups,
+                    key=lambda group: (
+                        group.get("parentOrder")
+                        if group.get("parentOrder") is not None else 0,
+                        str(group.get("id") or ""),
+                    ),
+                )
+            ]
+            if len(matches) > 1:
+                reason = "section is ambiguous"
+            elif not section_title and len(groups) > 1:
+                reason = (
+                    "target project has multiple sections; "
+                    "specify section or section_id"
+                )
+            else:
+                reason = "section was not found in the target project"
+            raise ValueError(f"{reason}; available sections: {available}")
+
+        target_group = matches[0]
+    target_group_id = target_group["id"]
+    client.patch(
+        f"/v2/task/{quote(task_id, safe='')}",
+        {"projectId": project_id, "group": target_group_id},
+    )
+    task = client.get(f"/v2/task/{quote(task_id, safe='')}")
+    if (
+        task.get("projectId") != project_id
+        or task.get("group") != target_group_id
+    ):
+        raise ValueError(
+            "task move verification failed: API returned "
+            f"projectId={task.get('projectId')!r}, group={task.get('group')!r}"
+        )
+
+    return {
+        "status": "ok",
+        "task": task,
+        "project_id": project_id,
+        "section": {
+            "id": target_group_id,
+            "title": target_group.get("title", ""),
+            "verified_for_project": True,
+        },
+        "warnings": [],
+    }
+
 
 def _load_indexed_projects():
     """Load projects.json and build search indexes.
@@ -233,8 +353,74 @@ def _generate_meta_template_handler(client: SingularityClient, res_key: str, arg
     return result
 
 
+def _refresh_task_group_mappings(
+    client: SingularityClient,
+    project_ids: list[str],
+) -> dict:
+    """Refresh missing base task-group mappings for newly discovered projects."""
+    path = REFS_DIR / "task_groups.json"
+    info = read_cache(path)
+    data = info["raw"] if info is not None else {
+        "_meta": {"complete": True},
+        "mappings": {},
+    }
+    mappings = data.setdefault("mappings", {})
+    warnings: list[str] = []
+    changed = False
+
+    for project_id in sorted(set(project_ids)):
+        pag = iterate_pages(
+            client,
+            "/v2/task-group",
+            params={"parent": project_id, "includeRemoved": "false"},
+            wrapper_keys=["taskGroups", "items"],
+            page_size=100,
+        )
+        if pag["partial"]:
+            warnings.extend(
+                f"{project_id}: {warning}"
+                for warning in pag["warnings"]
+            )
+            continue
+        groups = [
+            group
+            for group in pag["items"]
+            if (
+                isinstance(group, dict)
+                and str(group.get("id") or "").startswith("Q-")
+                and group.get("parent") == project_id
+                and not group.get("removed")
+            )
+        ]
+        if not groups:
+            warnings.append(f"{project_id}: no live task group")
+            continue
+        base_group = min(
+            groups,
+            key=lambda group: (
+                group.get("parentOrder")
+                if group.get("parentOrder") is not None else 0,
+                group["id"],
+            ),
+        )
+        if mappings.get(project_id) != base_group["id"]:
+            mappings[project_id] = base_group["id"]
+            changed = True
+
+    meta = data.setdefault("_meta", {})
+    if warnings:
+        meta["complete"] = False
+    meta["total_items"] = len(mappings)
+    if changed or warnings:
+        atomic_write_json(path, data)
+    return {
+        "changed": changed,
+        "warnings": warnings,
+    }
+
+
 def _find_project_handler(client: SingularityClient, res_key: str, args: dict) -> dict:
-    """Find project by name using indexed search. Rebuild cache on miss and retry.
+    """Find project by name after validating the cache against the server.
 
     Returns projects with task_group_id field added from task_groups.json cache.
     """
@@ -243,6 +429,22 @@ def _find_project_handler(client: SingularityClient, res_key: str, args: dict) -
 
     if not name:
         raise ValueError("name is required")
+
+    cache_sync = _sync_projects_cache_from_server(client)
+    cache_rebuilt_before_search = False
+    if not cache_sync["validated"]:
+        print(
+            "[singularity] Project cache cannot be server-validated; rebuilding...",
+            file=sys.stderr,
+        )
+        _rebuild_references_handler(client, None, {})
+        cache_rebuilt_before_search = True
+        cache_sync = _sync_projects_cache_from_server(client)
+        if not cache_sync["validated"]:
+            raise RuntimeError(
+                "project cache remained unverifiable after rebuild: "
+                f"{cache_sync.get('reason', 'unknown reason')}"
+            )
 
     def search_project():
         """Search in indexed cache and enrich with task_group_id."""
@@ -253,7 +455,10 @@ def _find_project_handler(client: SingularityClient, res_key: str, args: dict) -
         # Load task_groups mapping
         task_groups_file = REFS_DIR / "task_groups.json"
         task_groups_mapping = {}
-        degraded = bool(indexed["metadata"].get("degraded"))
+        tg_info = None
+        degraded_reasons = []
+        if indexed["metadata"].get("degraded"):
+            degraded_reasons.append("project cache incomplete")
         if task_groups_file.exists():
             try:
                 tg_info = read_cache(task_groups_file)
@@ -261,9 +466,10 @@ def _find_project_handler(client: SingularityClient, res_key: str, args: dict) -
                 task_groups_mapping = tg_data.get("mappings", {})
                 tg_meta = tg_info["meta"] if tg_info is not None else None
                 if tg_meta is not None and tg_meta.get("complete") is False:
-                    degraded = True
+                    degraded_reasons.append("task_groups cache incomplete")
             except (json.JSONDecodeError, OSError) as exc:
                 print(f"[singularity] task_groups cache unreadable, ignoring: {exc}", file=sys.stderr)
+                degraded_reasons.append("task_groups cache unreadable")
 
         matches = []
 
@@ -287,22 +493,57 @@ def _find_project_handler(client: SingularityClient, res_key: str, args: dict) -
                     p_copy["task_group_id"] = task_groups_mapping.get(project_id)
                     matches.append(p_copy)
 
+        missing_task_groups = [
+            match["id"]
+            for match in matches
+            if not match.get("task_group_id")
+        ]
+        if missing_task_groups:
+            degraded_reasons.append(
+                "task_group_id missing for "
+                + ", ".join(sorted(missing_task_groups))
+            )
+
         return {
             "matches": matches,
-            "degraded": degraded,
-            "reason": "cache incomplete" if degraded else None,
+            "degraded": bool(degraded_reasons),
+            "reason": "; ".join(degraded_reasons) if degraded_reasons else None,
+            "task_groups_complete": bool(
+                task_groups_file.exists()
+                and tg_info is not None
+                and tg_info["meta"] is not None
+                and tg_info["meta"].get("complete") is True
+            ),
         }
 
     # First attempt
     search_result = search_project()
     matches = search_result["matches"] if search_result else None
 
+    missing_task_group_ids = [
+        match["id"]
+        for match in (matches or [])
+        if not match.get("task_group_id")
+    ]
+    if (
+        missing_task_group_ids
+        and search_result
+        and search_result["task_groups_complete"]
+    ):
+        _refresh_task_group_mappings(client, missing_task_group_ids)
+        search_result = search_project()
+        matches = search_result["matches"] if search_result else None
+
     if matches:
         result = {
             "found": True,
             "count": len(matches),
-            "projects": matches
+            "projects": matches,
+            "cache_validated": cache_sync["validated"],
+            "cache_refreshed": cache_sync["refreshed"],
         }
+        if cache_rebuilt_before_search:
+            result["cache_rebuilt"] = True
         if search_result["degraded"]:
             result["degraded"] = True
             result["reason"] = search_result["reason"]
@@ -321,7 +562,9 @@ def _find_project_handler(client: SingularityClient, res_key: str, args: dict) -
             "found": True,
             "count": len(matches),
             "projects": matches,
-            "cache_rebuilt": True
+            "cache_rebuilt": True,
+            "cache_validated": cache_sync["validated"],
+            "cache_refreshed": cache_sync["refreshed"],
         }
         if search_result["degraded"]:
             result["degraded"] = True
@@ -333,6 +576,8 @@ def _find_project_handler(client: SingularityClient, res_key: str, args: dict) -
         "count": 0,
         "projects": [],
         "cache_rebuilt": True,
+        "cache_validated": cache_sync["validated"],
+        "cache_refreshed": cache_sync["refreshed"],
         "message": f"Project '{name}' not found even after cache rebuild"
     }
     if search_result and search_result["degraded"]:

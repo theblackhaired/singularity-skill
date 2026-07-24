@@ -67,13 +67,13 @@ class TestCliParity(unittest.TestCase):
             "python cli.py --describe project_list "
             "> tests/snapshots/cli/describe_project_list.txt")
 
-    def test_list_contains_64_tools(self):
-        """Smoke check: --list returns 64 tools."""
+    def test_list_contains_65_tools(self):
+        """Smoke check: --list returns 65 tools."""
         import json
         out = _run("--list")
         tools = json.loads(out)
-        self.assertEqual(len(tools), 64,
-            f"expected 64 tools, got {len(tools)}")
+        self.assertEqual(len(tools), 65,
+            f"expected 65 tools, got {len(tools)}")
 
     def test_doctor_no_side_effects_on_config(self):
         """T0.13 invariant: --doctor must not modify config.json."""

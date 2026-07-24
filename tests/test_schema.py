@@ -64,15 +64,15 @@ class TestDescribeSchema(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.tool_names = list(TOOL_CATALOG.keys())
-        cls.assertEqual_count = 64
+        cls.assertEqual_count = 65
         if len(cls.tool_names) != cls.assertEqual_count:
             print(f"WARN: expected {cls.assertEqual_count} tools, "
                   f"got {len(cls.tool_names)}",
                   file=sys.stderr)
 
-    def test_catalog_has_64_tools(self):
-        """Runtime catalog has expected 64 tools."""
-        self.assertEqual(len(self.tool_names), 64)
+    def test_catalog_has_65_tools(self):
+        """Runtime catalog has expected 65 tools."""
+        self.assertEqual(len(self.tool_names), 65)
 
     def test_all_describe_outputs_have_valid_top_level(self):
         """Every --describe response has name/description/inputSchema."""

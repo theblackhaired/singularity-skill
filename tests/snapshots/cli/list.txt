@@ -237,11 +237,15 @@
   },
   {
     "name": "find_project",
-    "description": "Find project by name with auto-rebuild on cache miss"
+    "description": "Find project by name after automatic live-server cache validation and refresh"
   },
   {
     "name": "find_tag",
     "description": "Find tag by name with auto-rebuild on cache miss"
+  },
+  {
+    "name": "task_move",
+    "description": "Move a task with an explicit or live-resolved target section and verify the result"
   },
   {
     "name": "task_full",

@@ -1,5 +1,51 @@
 # Changelog
 
+## [1.5.4] - 2026-07-24
+
+### Fixed
+- `find_project` now validates `references/projects.json` against
+  `/v2/project?modifiedSince=<server watermark>` before every lookup, including
+  successful cache hits.
+- Live project deltas are merged atomically, while local descriptions are
+  preserved and renamed, moved, or removed projects are reflected before
+  returning a result.
+- Project tombstones are recognized from the live response shape
+  (`showInBasket=false`, `deleteDate`, or `removed`); this covers records that
+  are absent from normal lists and return 404 from the single-resource path.
+- The sync watermark is derived from server `modificatedDate` values with a
+  one-second overlap, and pagination follows server `pagination.total`, so
+  client clock skew and server-side page caps cannot silently drop deltas.
+- Project cache read/modify/write paths share a cross-process lock, preventing
+  concurrent `find_project`, rebuild, and `project_describe` writes from
+  overwriting one another.
+- Newly discovered projects refresh their base task-group mapping
+  incrementally when the task-group cache was previously complete; failed
+  mapping refreshes are surfaced as degraded instead of silently returning a
+  supposedly complete result.
+- Replayed overlap deltas that do not change normalized project data no longer
+  rewrite `projects.json`.
+- Server validation fails closed instead of silently trusting a stale cache.
+  Raw `projects.json` reads are no longer documented as authoritative.
+- Cache completeness is tracked per resource, so a task-group scope failure no
+  longer incorrectly marks a complete projects or tags fetch as incomplete.
+- Full reference rebuilds pace the per-project task-group requests by default,
+  avoiding the live server's burst-rate 429 responses; diagnostics can override
+  the delay with `task_group_throttle_ms`.
+
+## [1.5.3] - 2026-07-24
+
+### Fixed
+- Added `task_move` to resolve a live target section by exact title or `Q-*`
+  before moving a task between projects.
+- Refuse ambiguous, missing, foreign, removed, or partially fetched
+  live-resolved sections before PATCH and verify the resulting `projectId`
+  and `group`.
+- Allow an explicit `section_id` without listing all task groups. Its
+  single-resource endpoint is checked before PATCH, which works with the
+  observed token scope and prevents assigning a section owned by another
+  project.
+- Classified `task_move` as a write tool so read-only mode blocks it.
+
 ## [1.5.2] - 2026-07-21
 
 ### Fixed

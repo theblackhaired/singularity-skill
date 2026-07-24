@@ -129,7 +129,7 @@
   },
   {
     "name": "find_project",
-    "description": "Find project by name with auto-rebuild on cache miss",
+    "description": "Find project by name after automatic live-server cache validation and refresh",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -1094,7 +1094,12 @@
     "description": "Regenerate references cache from API while preserving project descriptions in projects.json",
     "inputSchema": {
       "type": "object",
-      "properties": {},
+      "properties": {
+        "task_group_throttle_ms": {
+          "type": "integer",
+          "description": "Delay between per-project task-group requests (default: 750 ms; set 0 only for controlled testing)"
+        }
+      },
       "required": []
     }
   },
@@ -1556,6 +1561,35 @@
         }
       },
       "required": []
+    }
+  },
+  {
+    "name": "task_move",
+    "description": "Move a task with an explicit or live-resolved target section and verify the result",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Task ID (T-xxx)"
+        },
+        "project_id": {
+          "type": "string",
+          "description": "Target project ID (P-xxx)"
+        },
+        "section": {
+          "type": "string",
+          "description": "Exact target section title (case-insensitive)"
+        },
+        "section_id": {
+          "type": "string",
+          "description": "Target section ID (Q-xxx)"
+        }
+      },
+      "required": [
+        "id",
+        "project_id"
+      ]
     }
   },
   {

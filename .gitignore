@@ -7,6 +7,7 @@ nul
 projects_cache.md
 projects_cache.md.pre-*.bak
 references/*.json
+references/*.lock
 references/*.legacy
 !references/*.example.json
 tmp*/

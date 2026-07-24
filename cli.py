@@ -34,7 +34,9 @@ REFS_DIR = ROOT / "references"
 # 1.4.2  Cache correctness: incomplete rebuilds and degraded read responses.
 # 1.5.0  JSON-only project descriptions, project_describe, migration state.
 # 1.5.2  Safe project moves keep task projectId and group consistent.
-SKILL_VERSION = "1.5.2"
+# 1.5.3  task_move resolves a live target section and verifies the move.
+# 1.5.4  find_project validates and incrementally refreshes its server cache.
+SKILL_VERSION = "1.5.4"
 
 # Iteration 1: notes resolved per Decision A in notes-decision.md.
 from note_resolver import resolve_note  # noqa: E402  -- after sys.stdout reconfigure
@@ -50,6 +52,7 @@ from cache import (                     # noqa: E402
     read_cache,
     _sha256_file,
     _projects_path,
+    _projects_cache_lock,
     _count_project_descriptions,
     _ensure_description_migration_meta,
     _load_projects_data,
@@ -135,6 +138,12 @@ def _project_tasks_full_handler(client: "SingularityClient", res_key: str, args:
 def _inbox_list_handler(client: "SingularityClient", res_key: str, args: dict) -> dict:
     _sync_derived_module()
     return _derived._inbox_list_handler(client, res_key, args)
+
+
+def _task_move_handler(client: "SingularityClient", res_key: str,
+                       args: dict) -> dict:
+    _sync_derived_module()
+    return _derived._task_move_handler(client, res_key, args)
 
 
 # ---------------------------------------------------------------------------
@@ -721,7 +730,15 @@ TOOL_CATALOG = {
     # --- References ---
     "rebuild_references": {
         "desc": "Regenerate references cache from API while preserving project descriptions in projects.json",
-        "params": {},
+        "params": {
+            "task_group_throttle_ms": {
+                "type": "int",
+                "desc": (
+                    "Delay between per-project task-group requests "
+                    "(default: 750 ms; set 0 only for controlled testing)"
+                ),
+            },
+        },
     },
     "generate_meta_template": {
         "desc": "Generate meta template file with _title fields for easy editing",
@@ -738,7 +755,7 @@ TOOL_CATALOG = {
         }
     },
     "find_project": {
-        "desc": "Find project by name with auto-rebuild on cache miss",
+        "desc": "Find project by name after automatic live-server cache validation and refresh",
         "params": {
             "name": {
                 "type": "str",
@@ -762,6 +779,29 @@ TOOL_CATALOG = {
             "exact": {
                 "type": "bool",
                 "desc": "Exact match only (default: false, allows partial match)"
+            }
+        }
+    },
+    "task_move": {
+        "desc": "Move a task with an explicit or live-resolved target section and verify the result",
+        "params": {
+            "id": {
+                "type": "str",
+                "required": True,
+                "desc": "Task ID (T-xxx)"
+            },
+            "project_id": {
+                "type": "str",
+                "required": True,
+                "desc": "Target project ID (P-xxx)"
+            },
+            "section": {
+                "type": "str",
+                "desc": "Exact target section title (case-insensitive)"
+            },
+            "section_id": {
+                "type": "str",
+                "desc": "Target section ID (Q-xxx)"
             }
         }
     },
@@ -842,6 +882,7 @@ for _name in TOOL_CATALOG:
     for _suffix in ("_create", "_update", "_delete", "_bulk_delete"):
         if _name.endswith(_suffix):
             WRITE_TOOLS.add(_name)
+WRITE_TOOLS.add("task_move")
 
 LOCAL_WRITE_TOOLS = {"project_describe"}
 
@@ -875,8 +916,8 @@ def _load_batch_file(path_value: str) -> object:
         ) from exc
 
 
-def _project_describe_handler(client: SingularityClient, _res_key: str,
-                              args: dict) -> dict:
+def _project_describe_unlocked(client: SingularityClient, _res_key: str,
+                               args: dict) -> dict:
     """Edit local project descriptions in references/projects.json."""
     del client
     args = dict(args or {})
@@ -1043,7 +1084,7 @@ def _project_describe_handler(client: SingularityClient, _res_key: str,
             project["description"] = desc
 
     archive_info = _complete_description_migration_if_pending(data)
-    _write_projects_data(data)
+    _write_projects_data(data, lock_held=True)
 
     result = {
         "status": "ok",
@@ -1059,6 +1100,12 @@ def _project_describe_handler(client: SingularityClient, _res_key: str,
     return result
 
 
+def _project_describe_handler(client: SingularityClient, res_key: str,
+                              args: dict) -> dict:
+    with _projects_cache_lock():
+        return _project_describe_unlocked(client, res_key, args)
+
+
 
 
 
@@ -1072,6 +1119,7 @@ TOOL_DISPATCH["find_tag"] = (None, _find_tag_handler)
 TOOL_DISPATCH["task_full"] = (None, _task_full_handler)
 TOOL_DISPATCH["project_tasks_full"] = (None, _project_tasks_full_handler)
 TOOL_DISPATCH["inbox_list"] = (None, _inbox_list_handler)
+TOOL_DISPATCH["task_move"] = (None, _task_move_handler)
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------

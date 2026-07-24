@@ -31,6 +31,8 @@ import os
 import re
 import sys
 import tempfile
+import time
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -138,6 +140,98 @@ def atomic_write_json(path: Path, obj: Any, *, indent: int = 2) -> None:
 
 def _now_iso_utc() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S+00:00")
+
+
+def _project_modification_datetime(value: object) -> datetime | None:
+    """Parse the API's epoch-ms or ISO project modification timestamp."""
+    if value is None:
+        return None
+    raw = str(value).strip()
+    if not raw:
+        return None
+    try:
+        if raw.isdigit():
+            return datetime.fromtimestamp(int(raw) / 1000, tz=timezone.utc)
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+    except (ValueError, OverflowError, OSError):
+        return None
+
+
+def _format_sync_watermark(value: datetime) -> str:
+    return value.astimezone(timezone.utc).isoformat(
+        timespec="milliseconds"
+    ).replace("+00:00", "Z")
+
+
+def _max_project_watermark(
+    projects: list[dict],
+    *,
+    fallback: str | None = None,
+) -> str | None:
+    timestamps = [
+        parsed
+        for project in projects
+        if isinstance(project, dict)
+        for parsed in [_project_modification_datetime(project.get("modificatedDate"))]
+        if parsed is not None
+    ]
+    if timestamps:
+        return _format_sync_watermark(max(timestamps))
+    return fallback
+
+
+def _overlap_watermark(value: str, seconds: int = 1) -> str:
+    parsed = _project_modification_datetime(value)
+    if parsed is None:
+        return value
+    from datetime import timedelta
+    return _format_sync_watermark(parsed - timedelta(seconds=seconds))
+
+
+@contextmanager
+def _projects_cache_lock(timeout_seconds: float = 30.0):
+    """Cross-process lock for projects.json read/modify/write sequences."""
+    lock_path = _refs_dir() / "projects.json.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    handle = lock_path.open("a+b")
+    if handle.tell() == 0:
+        handle.write(b"\0")
+        handle.flush()
+    deadline = time.monotonic() + timeout_seconds
+    acquired = False
+    try:
+        while not acquired:
+            try:
+                handle.seek(0)
+                if os.name == "nt":
+                    import msvcrt
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+                else:
+                    import fcntl
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                acquired = True
+            except (OSError, BlockingIOError):
+                if time.monotonic() >= deadline:
+                    raise StructuredError(
+                        "PROJECT_CACHE_LOCK_TIMEOUT",
+                        "Timed out waiting for the projects cache lock",
+                        file=str(lock_path),
+                    )
+                time.sleep(0.05)
+        yield
+    finally:
+        if acquired:
+            handle.seek(0)
+            if os.name == "nt":
+                import msvcrt
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        handle.close()
 
 
 def build_cache_meta(
@@ -327,9 +421,44 @@ def _set_projects_counters(data: dict) -> None:
     data["with_description"] = _count_project_descriptions(projects)
 
 
-def _write_projects_data(data: dict) -> None:
+def _write_projects_data(data: dict, *, lock_held: bool = False) -> None:
     _set_projects_counters(data)
-    atomic_write_json(_projects_path(), data)
+    if lock_held:
+        atomic_write_json(_projects_path(), data)
+        return
+    with _projects_cache_lock():
+        atomic_write_json(_projects_path(), data)
+
+
+def _project_cache_entry(
+    project: dict,
+    *,
+    existing: dict | None = None,
+    description: object = None,
+) -> dict:
+    existing = existing or {}
+    return {
+        "id": project["id"],
+        "title": project.get("title", existing.get("title", "")),
+        "emoji": project.get("emoji", existing.get("emoji")),
+        "color": project.get("color", existing.get("color")),
+        "parent": project.get("parent", existing.get("parent")),
+        "parentOrder": project.get("parentOrder", existing.get("parentOrder")),
+        "externalId": project.get("externalId", existing.get("externalId")),
+        "modificatedDate": project.get(
+            "modificatedDate",
+            existing.get("modificatedDate"),
+        ),
+        "isNotebook": project.get(
+            "isNotebook",
+            existing.get("isNotebook", False),
+        ),
+        "archived": project.get(
+            "archive",
+            project.get("archived", existing.get("archived", False)),
+        ),
+        "description": description,
+    }
 
 
 def _archive_path_for_project_cache(source: Path) -> Path:
@@ -422,8 +551,8 @@ def _complete_description_migration_if_pending(data: dict) -> dict | None:
     return archive_info
 
 
-def _rebuild_references_handler(client: SingularityClient, _res_key: str,
-                                _args: dict) -> dict:
+def _rebuild_references_unlocked(client: SingularityClient, _res_key: str,
+                                 _args: dict) -> dict:
     """Fetch projects and tags via paginator, merge meta, atomically write caches.
 
     Iteration 2/3:
@@ -470,7 +599,7 @@ def _rebuild_references_handler(client: SingularityClient, _res_key: str,
     # --- Fetch all projects via paginator (T2.4) ---
     proj_pag = _iterate_pages_for_call(
         client, "/v2/project",
-        params={"includeRemoved": "false"},
+        params={"includeRemoved": "false", "includeArchived": "true"},
         wrapper_keys=["projects", "items"],
     )
     projects_raw = [p for p in proj_pag["items"] if not p.get("removed")]
@@ -518,16 +647,7 @@ def _rebuild_references_handler(client: SingularityClient, _res_key: str,
             if isinstance(meta_entry, dict) and meta_entry.get("description") is not None:
                 desc = meta_entry.get("description")
                 imported_project_meta_ids.add(pid)
-        projects_out.append({
-            "id": pid,
-            "title": p.get("title", ""),
-            "emoji": p.get("emoji"),
-            "color": p.get("color"),
-            "parent": p.get("parent"),
-            "isNotebook": p.get("isNotebook", False),
-            "archived": p.get("archive", False),
-            "description": desc,
-        })
+        projects_out.append(_project_cache_entry(p, description=desc))
 
     projects_out.sort(
         key=lambda x: (x["archived"], (x["title"] or "").lower())
@@ -548,6 +668,10 @@ def _rebuild_references_handler(client: SingularityClient, _res_key: str,
     )
     projects_meta["description_migration"] = existing_migration or _default_description_migration()
     projects_meta["project_meta_imported_ids"] = sorted(imported_project_meta_ids)
+    projects_meta["server_checked_at"] = _max_project_watermark(
+        projects_raw,
+        fallback=projects_meta["generated_at"],
+    )
     projects_data = wrap_cache(
         "projects", projects_out, projects_meta,
         # Legacy fields kept for back-compat with consumers that read them directly:
@@ -598,8 +722,14 @@ def _rebuild_references_handler(client: SingularityClient, _res_key: str,
     tg_errors_count = 0
     tg_pages_fetched = 0
     tg_partial = False
+    task_group_throttle_ms = max(
+        0,
+        int(_args.get("task_group_throttle_ms", 750)),
+    )
 
     for idx, p in enumerate(projects_out, 1):
+        if idx > 1 and task_group_throttle_ms:
+            time.sleep(task_group_throttle_ms / 1000.0)
         project_id = p["id"]
 
         if idx % 10 == 0 or idx == len(projects_out):
@@ -636,10 +766,13 @@ def _rebuild_references_handler(client: SingularityClient, _res_key: str,
             print(f"[singularity] Warning: Failed to fetch task groups for {project_id}: {e}", file=sys.stderr)
             continue
 
-    any_partial = bool(proj_pag["partial"] or tag_pag["partial"] or tg_partial)
-    complete = (tg_errors_count == 0) and not any_partial
-    projects_meta["complete"] = complete
-    tags_meta["complete"] = complete
+    projects_complete = not proj_pag["partial"]
+    tags_complete = not tag_pag["partial"]
+    task_groups_complete = (tg_errors_count == 0) and not tg_partial
+    any_partial = bool(not projects_complete or not tags_complete or not task_groups_complete)
+    complete = projects_complete and tags_complete and task_groups_complete
+    projects_meta["complete"] = projects_complete
+    tags_meta["complete"] = tags_complete
     atomic_write_json(refs_dir / "projects.json", projects_data)
     atomic_write_json(refs_dir / "tags.json", tags_data)
 
@@ -648,7 +781,7 @@ def _rebuild_references_handler(client: SingularityClient, _res_key: str,
         pages_fetched=tg_pages_fetched,
         page_size=100,
         total_items=len(task_groups_mapping),
-        complete=complete,
+        complete=task_groups_complete,
     )
     task_groups_data = wrap_cache(
         "mappings", [], tg_meta,
@@ -677,6 +810,235 @@ def _rebuild_references_handler(client: SingularityClient, _res_key: str,
             "references/task_groups.json",
         ],
     }
+
+
+def _rebuild_references_handler(client: SingularityClient, _res_key: str,
+                                args: dict) -> dict:
+    with _projects_cache_lock():
+        return _rebuild_references_unlocked(client, _res_key, args)
+
+
+def _fetch_project_pages(
+    client: SingularityClient,
+    params: dict,
+    *,
+    page_size: int = 1000,
+) -> list[dict]:
+    projects: list[dict] = []
+    offset = 0
+    while True:
+        page_params = {
+            **params,
+            "paginationData": "true",
+            "maxCount": page_size,
+            "offset": offset,
+        }
+        body = client.get("/v2/project", params=page_params)
+        if not isinstance(body, dict) or not isinstance(body.get("projects"), list):
+            raise ValueError("expected response object with a projects array")
+        pagination = body.get("pagination")
+        if not isinstance(pagination, dict):
+            raise ValueError("expected pagination metadata")
+        total = pagination.get("total")
+        if not isinstance(total, (int, float)) or total < 0:
+            raise ValueError("expected non-negative pagination.total")
+        page = body["projects"]
+        projects.extend(page)
+        offset += len(page)
+        if offset >= int(total):
+            return projects
+        if not page:
+            raise ValueError("project page ended before pagination.total")
+        if offset >= 10_000_000:
+            raise ValueError("project pagination safety limit reached")
+
+
+def _live_project_total(client: SingularityClient) -> int:
+    body = client.get(
+        "/v2/project",
+        params={
+            "includeRemoved": "false",
+            "includeArchived": "true",
+            "paginationData": "true",
+            "maxCount": 1,
+            "offset": 0,
+            "fields": "id",
+        },
+    )
+    pagination = body.get("pagination") if isinstance(body, dict) else None
+    total = pagination.get("total") if isinstance(pagination, dict) else None
+    if not isinstance(total, (int, float)) or total < 0:
+        raise ValueError("expected non-negative live project pagination.total")
+    return int(total)
+
+
+def _sync_projects_cache_from_server_unlocked(client: SingularityClient) -> dict:
+    """Validate and incrementally refresh projects.json from the live server.
+
+    A successful cache hit is not proof that the cached project is current.
+    Use the last successful server watermark with ``modifiedSince`` on every
+    authoritative project lookup, merge all returned deltas, and advance the
+    watermark only after the complete delta has been received.
+
+    Validation fails closed: callers must not silently trust the local cache
+    when the server check is unavailable or returns an unexpected shape.
+    """
+    projects_file = _refs_dir() / "projects.json"
+    info = read_cache(projects_file)
+    if info is None or info["is_legacy"]:
+        return {
+            "validated": False,
+            "refreshed": False,
+            "changes": 0,
+            "reason": "project cache missing or legacy",
+        }
+
+    data = info["raw"]
+    meta = info["meta"] or {}
+    if meta.get("complete") is not True:
+        return {
+            "validated": False,
+            "refreshed": False,
+            "changes": 0,
+            "reason": "project cache is incomplete",
+        }
+    watermark = meta.get("server_checked_at")
+    if not isinstance(watermark, str) or not watermark.strip():
+        return {
+            "validated": False,
+            "refreshed": False,
+            "changes": 0,
+            "reason": "project cache has no server watermark",
+        }
+
+    try:
+        deltas = _fetch_project_pages(
+            client,
+            {
+                "modifiedSince": _overlap_watermark(watermark),
+                "includeRemoved": "true",
+                "includeArchived": "true",
+            },
+        )
+    except Exception as exc:
+        raise StructuredError(
+            "PROJECT_CACHE_VALIDATION_FAILED",
+            "Could not validate projects cache against the live server",
+            endpoint="/v2/project",
+            watermark=watermark,
+            cause=f"{type(exc).__name__}: {exc}",
+        ) from exc
+
+    projects_by_id = {
+        project["id"]: dict(project)
+        for project in data.get("projects", [])
+        if isinstance(project, dict) and project.get("id")
+    }
+
+    changed = 0
+    for project in deltas:
+        project_id = project.get("id")
+        if not project_id:
+            continue
+        if (
+            project.get("removed")
+            or project.get("deleteDate")
+            or project.get("showInBasket") is False
+        ):
+            if projects_by_id.pop(project_id, None) is not None:
+                changed += 1
+            continue
+
+        existing = projects_by_id.get(project_id, {})
+        updated = _project_cache_entry(
+            project,
+            existing=existing,
+            description=existing.get("description"),
+        )
+        if updated != existing:
+            changed += 1
+        projects_by_id[project_id] = updated
+
+    projects = sorted(
+        projects_by_id.values(),
+        key=lambda item: (
+            bool(item.get("archived")),
+            (item.get("title") or "").lower(),
+        ),
+    )
+    try:
+        live_total = _live_project_total(client)
+        reconciled = len(projects) != live_total
+        if reconciled:
+            live_projects = _fetch_project_pages(
+                client,
+                {
+                    "includeRemoved": "false",
+                    "includeArchived": "true",
+                },
+            )
+            current_by_id = projects_by_id
+            projects_by_id = {
+                project["id"]: _project_cache_entry(
+                    project,
+                    existing=current_by_id.get(project["id"], {}),
+                    description=current_by_id.get(
+                        project["id"],
+                        {},
+                    ).get("description"),
+                )
+                for project in live_projects
+                if isinstance(project, dict) and project.get("id")
+            }
+            projects = sorted(
+                projects_by_id.values(),
+                key=lambda item: (
+                    bool(item.get("archived")),
+                    (item.get("title") or "").lower(),
+                ),
+            )
+            changed = max(changed, 1)
+    except Exception as exc:
+        raise StructuredError(
+            "PROJECT_CACHE_VALIDATION_FAILED",
+            "Could not reconcile projects cache count with the live server",
+            endpoint="/v2/project",
+            watermark=watermark,
+            cause=f"{type(exc).__name__}: {exc}",
+        ) from exc
+
+    next_watermark = _max_project_watermark(
+        deltas,
+        fallback=watermark,
+    )
+    if changed == 0 and next_watermark == watermark:
+        return {
+            "validated": True,
+            "refreshed": False,
+            "changes": 0,
+            "watermark": watermark,
+        }
+    meta["server_checked_at"] = next_watermark
+    meta["total_items"] = len(projects)
+    data["_meta"] = meta
+    data["projects"] = projects
+    data["total"] = len(projects)
+    data["archived"] = sum(1 for project in projects if project.get("archived"))
+    data["with_description"] = _count_project_descriptions(projects)
+    atomic_write_json(projects_file, data)
+
+    return {
+        "validated": True,
+        "refreshed": changed > 0,
+        "changes": changed,
+        "watermark": meta["server_checked_at"],
+        "reconciled": reconciled,
+    }
+
+
+def _sync_projects_cache_from_server(client: SingularityClient) -> dict:
+    with _projects_cache_lock():
+        return _sync_projects_cache_from_server_unlocked(client)
 
 
 def _check_and_refresh_cache(cfg: dict) -> None:
@@ -757,6 +1119,7 @@ __all__ = [
     "REFS_DIR",
     "atomic_write_text",
     "atomic_write_json",
+    "_projects_cache_lock",
     "build_cache_meta",
     "wrap_cache",
     "read_cache",
@@ -777,5 +1140,6 @@ __all__ = [
     "_check_description_migration",
     "_complete_description_migration_if_pending",
     "_rebuild_references_handler",
+    "_sync_projects_cache_from_server",
     "_check_and_refresh_cache",
 ]

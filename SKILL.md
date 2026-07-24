@@ -38,11 +38,12 @@ These are documented gaps that consumers should be aware of:
    API has no server-side inbox filter. If you have >10k inbox tasks,
    the response will have `partial: true`.
 4. **`rebuild_references` is N+1 for task groups.** One pagination call
-   per project. ~1 minute for 50 projects, slower for larger accounts.
-   Throttle between projects is not yet wired (paginator supports
-   `throttle_ms` but rebuild loop doesn't pass it).
-5. **Project lookup uses `references/projects.json` only.** Markdown cache is
-   removed in v1.5.0.
+   per project. The rebuild automatically waits 750 ms between projects
+   to stay below the observed server rate limit. Override with
+   `task_group_throttle_ms` only for diagnostics.
+5. **Project lookup uses a server-validated `references/projects.json`.**
+   `find_project` checks `/v2/project` with `modifiedSince` before every
+   lookup and atomically applies deltas. Markdown cache is removed in v1.5.0.
 6. **Legacy cache auto-migration is helper-only.** `cache.migrate_legacy_cache()`
    exists for JSON reference caches. `--verify-cache` will fail on legacy
    format until you run `rebuild_references`.
@@ -63,17 +64,20 @@ These are documented gaps that consumers should be aware of:
 
 Если все файлы на месте — работай как обычно. Если чего-то не хватает — сначала заполни недостающее, потом выполняй запрос.
 
-## ⚡ ПРАВИЛО ПРИОРИТЕТА КЭША
+## ⚡ ПРАВИЛО СЕРВЕРНО-ПРОВЕРЕННОГО КЭША
 
-**КРИТИЧНО: ВСЕГДА используй кэш вместо API запросов!**
+**КРИТИЧНО: для авторитетного поиска проекта всегда используй `find_project`.**
+Он сам проверяет кэш на сервере. Прямое чтение `references/projects.json`
+допустимо только как неавторитетный снимок и не должно использоваться для
+создания, перемещения или изменения задач и проектов.
 
 | Задача | ❌ НЕ ДЕЛАЙ | ✅ ДЕЛАЙ |
 |--------|-------------|----------|
-| Найти проект по имени | `project_list` + фильтрация | Read `references/projects.json` + поиск |
+| Найти проект по имени | Читать `projects.json` напрямую | `find_project` |
 | Найти тег по имени | `tag_list` + фильтрация | Read `references/tags.json` + поиск |
-| Получить UUID проекта | API запрос | Read кэша + find_project |
-| Список подпроектов | `project_list(parent=...)` | Read кэша + filter by parent |
-| Проверить существование | API запрос | Read кэша |
+| Получить UUID проекта | Брать ID из снимка без проверки | `find_project` |
+| Список подпроектов | Фильтровать непроверенный снимок | `project_list(parent=...)` |
+| Проверить существование | Читать `projects.json` напрямую | `find_project(exact=true)` |
 
 **Когда использовать API:**
 - Создание/изменение/удаление данных (write operations)
@@ -88,8 +92,9 @@ These are documented gaps that consumers should be aware of:
 
 ## Project Lookup
 
-Project lookup uses `references/projects.json` only. Markdown cache is removed
-in v1.5.0.
+Project lookup uses `find_project`, which validates `references/projects.json`
+against the live `/v2/project` change feed before searching it. Markdown cache
+is removed in v1.5.0.
 
 Use `project_describe` to edit local project descriptions stored in
 `references/projects.json`. `references/project_meta.json` is retained only as
@@ -128,10 +133,11 @@ python cli.py --call '{"tool":"task_list","arguments":{"parent":"T-<task-id>"}}'
 
 | User wants to... | Tools to use |
 |---|---|
-| See all projects | Read `references/projects.json` (кэш) |
-| Get subprojects of "В работе" | Read кэша, filter by `parent` ID |
+| See all projects | `project_list` |
+| Get subprojects of "В работе" | `find_project` for the parent, then `project_list(parent=...)` |
 | Create a task | `task_group_list` (find group) then `task_create` |
 | Complete a task | `task_update` with `checked: true` |
+| Move a task to another project/section | `task_move` with target `project_id` and `section` or `section_id` |
 | Add checklist to task | `checklist_create` |
 | Manage kanban board | `kanban_status_list`, `kanban_task_status_create` |
 | Track a habit | `habit_create`, then `habit_progress_create` daily |
@@ -141,7 +147,7 @@ python cli.py --call '{"tool":"task_list","arguments":{"parent":"T-<task-id>"}}'
 | Find tasks in project | `task_list` with `project_id` |
 | Create a notebook | `project_create` with `isNotebook: true` |
 | Add note to notebook | `task_create` with `isNote: true` in notebook's task group |
-| UUID проекта по имени | `find_project(name="ISS")` или Read кэша |
+| UUID проекта по имени | `find_project(name="ISS")` |
 | UUID тега по имени | `find_tag(name="AI")` или Read кэша |
 | Обновить справочники | `rebuild_references()` |
 | Сгенерировать шаблон meta | `generate_meta_template(type="projects"/"tags")` |
@@ -149,9 +155,9 @@ python cli.py --call '{"tool":"task_list","arguments":{"parent":"T-<task-id>"}}'
 | Все задачи проекта с заметками | `project_tasks_full(project_id="P-xxx", include_notes=true)` |
 | Посмотреть задачи в Inbox | `inbox_list()` — все задачи без projectId |
 
-## Available Tools (<!-- TOOLS_COUNT_BEGIN -->64<!-- TOOLS_COUNT_END -->)
+## Available Tools (<!-- TOOLS_COUNT_BEGIN -->65<!-- TOOLS_COUNT_END -->)
 
-### Tasks (<!-- CATEGORY_TOOLS_COUNT_BEGIN:task -->11<!-- CATEGORY_TOOLS_COUNT_END:task --> tools)
+### Tasks (<!-- CATEGORY_TOOLS_COUNT_BEGIN:task -->12<!-- CATEGORY_TOOLS_COUNT_END:task --> tools)
 
 <!-- CATEGORY_TOOLS_LIST_START:task -->
 - `task_create` — Create task
@@ -164,6 +170,7 @@ python cli.py --call '{"tool":"task_list","arguments":{"parent":"T-<task-id>"}}'
 - `task_group_list` — List task groups
 - `task_group_update` — Update task group
 - `task_list` — List tasks
+- `task_move` — Move a task with an explicit or live-resolved target section and verify the result
 - `task_update` — Update task
 <!-- CATEGORY_TOOLS_LIST_END:task -->
 
@@ -248,7 +255,7 @@ python cli.py --call '{"tool":"task_list","arguments":{"parent":"T-<task-id>"}}'
 - `checklist_get` — Get checklist item by ID
 - `checklist_list` — List checklist items
 - `checklist_update` — Update checklist item
-- `find_project` — Find project by name with auto-rebuild on cache miss
+- `find_project` — Find project by name after automatic live-server cache validation and refresh
 - `find_tag` — Find tag by name with auto-rebuild on cache miss
 - `generate_meta_template` — Generate meta template file with _title fields for easy editing
 - `inbox_list` — Get all tasks in Inbox (tasks without projectId). Returns up to 1000 tasks.
@@ -269,10 +276,10 @@ python cli.py --call '{"tool":"task_list","arguments":{"parent":"T-<task-id>"}}'
 
 ### Как использовать
 
-1. **Вместо `project_list()`** — читай `references/projects.json` для получения UUID и описания проекта
+1. **Для UUID и существования проекта** — используй `find_project`; он автоматически сверяет кэш с сервером
 2. **Вместо `tag_list()`** — читай `references/tags.json` для получения UUID тега
 3. **Для создания задачи** — используй `find_project()` чтобы получить `task_group_id` вместо API запроса `task_group_list`
-4. **После изменения проектов/тегов** — вызови `rebuild_references()` для обновления кэша
+4. **После изменения тегов** — вызови `rebuild_references()`; изменения проектов `find_project` подхватывает автоматически
 
 ### Производительность
 
@@ -286,7 +293,10 @@ python cli.py --call '{"tool":"task_list","arguments":{"parent":"T-<task-id>"}}'
 Кэш автоматически обновляется если:
 1. **Файлы отсутствуют** — при первом запуске или после удаления
 2. **Кэш устарел** — старше `cache_ttl_days` из config.json (по умолчанию 30 дней)
-3. **Cache miss** — проект/тег не найден в кэше (будет реализовано при поиске)
+3. **Server delta** — перед каждым `find_project` сервер проверяется через
+   `modifiedSince`; любые изменения применяются до поиска, даже если старый
+   кэш дал бы успешное совпадение
+4. **Cache miss** — проект/тег не найден после проверки
 
 **Настройка TTL в config.json:**
 ```json
@@ -296,7 +306,8 @@ python cli.py --call '{"tool":"task_list","arguments":{"parent":"T-<task-id>"}}'
 }
 ```
 
-Установить `null` чтобы отключить TTL (только cache miss и ручное обновление).
+Установить `null` чтобы отключить TTL. Серверная проверка `find_project`
+остаётся включённой и не зависит от TTL.
 
 **Ручное обновление:**
 ```bash
@@ -305,14 +316,20 @@ python cli.py --call '{"tool":"rebuild_references","arguments":{}}'
 
 Логи обновления выводятся в stderr и не мешают JSON output.
 
-### Cache-Miss Logic (поиск с автообновлением)
+### Server-Validated Lookup
 
-Инструменты `find_project` и `find_tag` автоматически обновляют кэш если проект/тег не найден:
+`find_project` не доверяет даже успешному cache hit:
 
-1. **Поиск в кэше** — ищет проект/тег по имени (case-insensitive)
-2. **Cache miss** — если не найден → автоматически вызывает `rebuild_references()`
-3. **Повторный поиск** — ищет снова в обновлённом кэше
-4. **Результат** — возвращает найденные элементы или сообщение об отсутствии
+1. Берёт последний успешный server watermark из `_meta.server_checked_at`
+   (он строится из серверных `modificatedDate`, а не из локальных часов).
+2. Запрашивает все изменения `/v2/project?modifiedSince=...`, включая
+   удалённые и архивные проекты, с секундным overlap и проверкой
+   `pagination.total`.
+3. Атомарно применяет rename/move/delete, сохраняя локальные
+   `description`.
+4. Только после этого выполняет поиск. При недоступности проверки возвращает
+   `PROJECT_CACHE_VALIDATION_FAILED`, а не потенциально устаревший результат.
+5. `find_tag` сохраняет прежнюю cache-miss логику.
 
 **Примеры:**
 
@@ -333,7 +350,9 @@ python cli.py --call '{"tool":"find_tag","arguments":{"name":"AI"}}'
   "found": true,
   "count": 3,
   "projects": [...],
-  "cache_rebuilt": false  // true если кэш обновлялся
+  "cache_validated": true,
+  "cache_refreshed": false,
+  "cache_rebuilt": false
 }
 ```
 
@@ -479,15 +498,29 @@ After task creation:
 задачу в секции старого проекта: она видна в «Сегодня», но может исчезнуть из
 экрана целевого проекта.
 
-1. Получить живую секцию целевого проекта через `task_group_list` с
-   `parent = P-...`.
-2. В одном `task_update` передать новый `projectId` и соответствующий `group`.
-3. Повторно прочитать задачу и проверить: секция существует, а её `parent`
-   совпадает с `task.projectId`.
+Использовать `task_move`: он отправляет `projectId` и `group` одним PATCH и
+повторно проверяет задачу. `section` разрешается по точному имени без учёта
+регистра через живой список секций. `section_id` передаёт явный `Q-*` и
+проверяется через одиночный endpoint группы, не требующий list scope у
+наблюдаемого токена.
 
-`task_update` блокирует изменение `projectId` без `group` и отклоняет секцию
-чужого проекта. Поле `parent` у `task_update` означает родительскую задачу
-`T-...`; для секции использовать только `group: Q-...`.
+```bash
+python cli.py --call '{"tool":"task_move","arguments":{"id":"T-...","project_id":"P-...","section":"В работе"}}'
+python cli.py --call '{"tool":"task_move","arguments":{"id":"T-...","project_id":"P-...","section_id":"Q-..."}}'
+```
+
+Если task-group read scope доступен и у проекта ровно одна живая секция,
+`section` можно не передавать. При нескольких секциях без выбора,
+неоднозначном имени или неполном ответе API операция завершается до PATCH.
+При явном `section_id` инструмент через одиночный
+`GET /v2/task-group/{id}` проверяет, что секция существует, не удалена и
+принадлежит целевому проекту. После PATCH он проверяет, что задача вернула
+целевые `projectId` и `group`.
+
+`task_update` оставлен как низкоуровневый инструмент: он блокирует изменение
+`projectId` без `group` и отклоняет секцию чужого проекта. Поле `parent` у
+`task_update` означает родительскую задачу `T-...`; для секции использовать
+только `group: Q-...`.
 
 ### Emoji format
 - Hex Unicode code **without prefix**: `"1f49e"` (not `"U+1F49E"` or `"\u1f49e"`)
@@ -546,36 +579,14 @@ Example:
 
 ## Examples
 
-### Find subprojects using cache (RECOMMENDED)
-
-```python
-# Вместо API запроса - читай кэш
-import json
-
-with open('references/projects.json', 'r', encoding='utf-8') as f:
-    data = json.load(f)
-
-# Найти проект "В работе"
-target = next(p for p in data['projects'] if p['title'] == 'В работе')
-target_id = target['id']
-
-# Получить все подпроекты
-children = [p for p in data['projects'] if p.get('parent') == target_id]
-
-for p in children:
-    print(f"• {p['title']}")
-```
-
-**Результат:** Мгновенный ответ без API запроса ⚡
-
-### List all projects (use cache instead!)
+### Find subprojects with authoritative data
 
 ```bash
-# ❌ НЕ ДЕЛАЙ ТАК - медленно, расточительно
-python cli.py --call '{"tool": "project_list", "arguments": {}}'
+# 1. Server-validated parent lookup
+python cli.py --call '{"tool":"find_project","arguments":{"name":"В работе","exact":true}}'
 
-# ✅ ДЕЛАЙ ТАК - быстро, эффективно
-# Read references/projects.json напрямую
+# 2. Live children list using the returned P-* ID
+python cli.py --call '{"tool":"project_list","arguments":{"parent":"P-<project-uuid>"}}'
 ```
 
 ### Create a project with emoji

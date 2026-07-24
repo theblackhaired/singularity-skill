@@ -6,7 +6,7 @@
 
 Script-based CLI skill for [Singularity App](https://singularity-app.com) task management API.
 
-64 tools covering 11 resources: projects, tasks, task groups, notes, kanban boards, habits, habit progress, checklists, tags, time tracking. Includes derived batch tools (`task_full`, `project_tasks_full`, `inbox_list`) and cache helpers (`rebuild_references`, `project_describe`, `find_project`, `find_tag`, `generate_meta_template`).
+65 tools covering 11 resources: projects, tasks, task groups, notes, kanban boards, habits, habit progress, checklists, tags, time tracking. Includes safe task moves (`task_move`), derived batch tools (`task_full`, `project_tasks_full`, `inbox_list`), and cache helpers (`rebuild_references`, `project_describe`, `find_project`, `find_tag`, `generate_meta_template`). `find_project` automatically checks the live server for changes before trusting any cache hit.
 
 ## Quick start
 
