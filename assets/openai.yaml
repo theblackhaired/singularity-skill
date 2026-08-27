@@ -1,7 +1,7 @@
 interface:
-  display_name: Singularity
-  short_description: Manage Singularity App through its REST API with 64 tools for tasks, projects, tags, habits, kanban boards, checklists, notes, time tracking, and cached project lookup. Use when the user asks to inspect, create, update, complete, organize, or delete work in Singularity App, or provides a Singularity task or project URL.
-  default_prompt: Use $aniliberty to find an anime or update my viewing progress.
+  display_name: Singularity App
+  short_description: Manage tasks, habits, projects, and notes
+  default_prompt: Use $singularity to show my current tasks and projects.
   icon_small: assets/icon.svg
   icon_large: assets/icon.svg
 policy:
