@@ -1,0 +1,9 @@
+interface:
+  display_name: "Singularity App"
+  short_description: "Manage tasks, habits, projects, and notes"
+  icon_small: "./assets/icon.svg"
+  icon_large: "./assets/icon.svg"
+  default_prompt: "Use $singularity to show my current tasks and projects."
+
+policy:
+  allow_implicit_invocation: true
